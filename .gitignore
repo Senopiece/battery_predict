@@ -9,4 +9,5 @@ wheels/
 # Virtual environments
 .venv
 
-dataset/*
+data/raw/*/set/*
+!data/raw/*/set/_readme.md
