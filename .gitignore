@@ -11,3 +11,6 @@ wheels/
 
 data/raw/*/set/*
 !data/raw/*/set/_readme.md
+
+data/raw/set/*
+!data/raw/*/set/_readme.md
