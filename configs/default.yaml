@@ -1,0 +1,84 @@
+experiment_name: latent_capacity_predictor
+seed: 42
+data:
+  dataset_dir: data/set
+  split_seed: 7
+  val_fraction: 0.2
+  test_fraction: 0.1
+  cycle_window: 64
+  min_observed_cycles: 2
+  train_batch_size: 8
+  eval_batch_size: 8
+  num_workers: 0
+  pin_memory: true
+  persistent_workers: false
+  epoch_samples: 256 # ~ 2*total_train_samples / cycle_window
+  val_epoch_samples: 64 # ~ 2*total_val_samples / cycle_window
+  dt_seconds: 1.0
+  min_discharge_capacity_ah: 1.0e-6
+  drop_cycles_without_discharge: true
+encoder:
+  d_model: 32
+  latent_dim: 32
+  conv_channels: [16, 32]
+  conv_kernels: [5, 3]
+  conv_strides: [1, 2]
+  conv_group_norm_groups: 4
+  transformer_layers: 1
+  attention_heads: 4
+  ff_dim: 64
+  dropout: 0.1
+  pooling_heads: 2
+  max_signal_positions: 2048
+predictor:
+  d_model: 32
+  layers: 2
+  attention_heads: 4
+  ff_dim: 64
+  dropout: 0.1
+  max_cycle_positions: 1024 # Must be >= cycle_window
+  rotary_base: 10000.0
+decoder:
+  hidden_dim: 32
+scheduled_sampling:
+  enabled: false
+  schedule: linear
+  start_probability: 0.0
+  end_probability: 0.0
+  warmup_epochs: 0
+  max_unroll_steps: 0
+loss:
+  latent_weight: 1.0
+  logvar_min: -10.0
+  logvar_max: 3.0
+  capacity_eps: 1.0e-6
+optimizer:
+  lr: 5.0e-4
+  weight_decay: 1.0e-4
+  betas: [0.9, 0.95]
+scheduler:
+  name: cosine
+  warmup_epochs: 5
+  min_lr: 1.0e-5
+trainer:
+  max_epochs: 60
+  accelerator: auto
+  devices: auto
+  precision: 16-mixed
+  gradient_clip_val: 1.0
+  log_every_n_steps: 10
+  deterministic: false
+  accumulate_grad_batches: 1
+  default_root_dir: outputs
+callbacks:
+  checkpoint_monitor: val/loss
+  checkpoint_mode: min
+  checkpoint_filename: best-{epoch:02d}-{val_loss:.4f}
+  save_top_k: 1
+clearml:
+  enabled: true
+  project_name: battery-predict
+  task_name: latent_capacity_predictor
+  tags: [battery, lightning, transformer]
+  output_uri: null
+  offline_mode: false

@@ -1,14 +1,57 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
 [project]
 name = "battery-predict"
 version = "0.1.0"
-description = "Add your description here"
+description = "Battery discharge latent modeling and next-cycle capacity prediction"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.12,<3.13"
 dependencies = [
+    "clearml>=1.16.5",
     "ipykernel>=7.2.0",
     "ipywidgets>=8.1.8",
+    "lightning>=2.5.0",
     "matplotlib>=3.10.8",
     "nbformat>=5.10.4",
+    "numpy>=2.2.0",
     "plotly>=6.6.0",
+    "pyyaml>=6.0.2",
     "scikit-learn>=1.8.0",
+    "tensorboard>=2.20.0",
+    "torch>=2.6.0",
+    "tqdm>=4.67.1",
 ]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.4.0",
+    "pytest-cov>=6.2.0",
+    "ruff>=0.12.0",
+]
+
+[project.scripts]
+battery-predict-train = "battery_predict.training.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/battery_predict"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu124" }]
