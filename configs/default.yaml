@@ -53,7 +53,7 @@ loss:
   logvar_max: 3.0
   capacity_eps: 1.0e-6
 optimizer:
-  lr: 5.0e-4
+  lr: 1.0e-4
   weight_decay: 1.0e-4
   betas: [0.9, 0.95]
 scheduler:
