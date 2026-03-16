@@ -1,5 +1,5 @@
 experiment_name: latent_capacity_predictor
-seed: 111
+seed: null
 data:
   dataset_dir: data/set
   split_seed: 7

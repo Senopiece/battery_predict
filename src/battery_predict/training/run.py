@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+import random
 from typing import Any
 
 import lightning as L
@@ -14,6 +15,12 @@ from battery_predict.training.callbacks import build_callbacks
 from battery_predict.training.config import ExperimentConfig
 from battery_predict.training.module import BatteryPredictorModule
 from battery_predict.utils.seed import seed_everything_local
+
+
+def resolve_seed(seed: int | None) -> int:
+    if seed is None:
+        return random.SystemRandom().randint(10000, 99999)
+    return int(seed)
 
 
 def make_run_dir(config: ExperimentConfig) -> Path:
@@ -88,6 +95,10 @@ def fit_experiment(
     enable_live_plot: bool = False,
     run_test: bool = True,
 ) -> tuple[L.Trainer, BatteryPredictorModule, BatteryDataModule, Path]:
+    if config.seed is None:
+        config.seed = resolve_seed(config.seed)
+        print(f"[INFO] Generated random 5-digit seed: {config.seed}")
+
     seed_everything_local(config.seed)
     L.seed_everything(config.seed, workers=True)
     run_dir = make_run_dir(config)

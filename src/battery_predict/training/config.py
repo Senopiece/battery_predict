@@ -125,7 +125,7 @@ class ClearMLConfig:
 @dataclass(slots=True)
 class ExperimentConfig:
     experiment_name: str = "latent_capacity_predictor"
-    seed: int = 42
+    seed: int | None = None
     data: DataConfig = field(default_factory=DataConfig)
     encoder: EncoderConfig = field(default_factory=EncoderConfig)
     predictor: PredictorConfig = field(default_factory=PredictorConfig)
