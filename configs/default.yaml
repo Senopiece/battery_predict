@@ -1,5 +1,5 @@
 experiment_name: latent_capacity_predictor
-seed: 42
+seed: 71
 data:
   dataset_dir: data/set
   split_seed: 7
@@ -7,13 +7,13 @@ data:
   test_fraction: 0.1
   cycle_window: 64
   min_observed_cycles: 2
-  train_batch_size: 8
-  eval_batch_size: 8
+  train_batch_size: 16
+  eval_batch_size: 16
   num_workers: 0
   pin_memory: true
   persistent_workers: false
-  epoch_samples: 256 # ~ 2*total_train_samples / cycle_window
-  val_epoch_samples: 64 # ~ 2*total_val_samples / cycle_window
+  epoch_samples: 2048
+  val_epoch_samples: 1024
   dt_seconds: 1.0
   min_discharge_capacity_ah: 1.0e-6
   drop_cycles_without_discharge: true
@@ -61,7 +61,7 @@ scheduler:
   warmup_epochs: 5
   min_lr: 1.0e-5
 trainer:
-  max_epochs: 60
+  max_epochs: 100
   accelerator: auto
   devices: auto
   precision: 16-mixed
