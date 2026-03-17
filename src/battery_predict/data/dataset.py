@@ -45,7 +45,7 @@ def _load_battery_record(path: Path, config: DataConfig) -> BatteryRecord:
         if valid_len <= 0:
             continue
 
-        trimmed = cycle[:valid_len].astype(np.float32, copy=True)
+        trimmed = cycle[:valid_len].astype(np.float32, copy=False)
         capacity_ah, is_valid_capacity = compute_discharge_capacity_ah(
             trimmed,
             dt_seconds=config.dt_seconds,
@@ -178,7 +178,7 @@ def collate_cycle_windows(batch: list[dict[str, Any]]) -> dict[str, Any]:
 
         for cycle_idx, signal in enumerate(item["signals"]):
             valid_len = signal.shape[0]
-            signals[batch_idx, cycle_idx, :valid_len] = torch.from_numpy(signal)
+            signals[batch_idx, cycle_idx, :valid_len, :] = torch.from_numpy(signal)
             signal_mask[batch_idx, cycle_idx, :valid_len] = True
 
     prediction_mask = sequence_mask[:, 1:] & sequence_mask[:, :-1]

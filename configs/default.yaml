@@ -49,7 +49,7 @@ scheduled_sampling:
   max_unroll_steps: 0
 loss:
   latent_weight: 1.0
-  learn_gaussian_likelihood: false
+  learn_gaussian_likelihood: true
   logvar_min: -10.0
   logvar_max: 3.0
   capacity_eps: 1.0e-6

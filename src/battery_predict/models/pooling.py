@@ -15,6 +15,5 @@ class MaskedAttentionPooling(nn.Module):
         scores = self.score_out(torch.tanh(self.score_proj(hidden)))
         scores = scores.masked_fill(~mask.unsqueeze(-1), float("-inf"))
         weights = torch.softmax(scores, dim=1)
-        weights = torch.where(mask.unsqueeze(-1), weights, torch.zeros_like(weights))
         pooled = torch.einsum("bth,btd->bhd", weights, hidden)
         return pooled.flatten(start_dim=1)

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import math
-
 import torch
+
+_LOG_2PI = 0.9189385332046727  # log(2*pi)
 
 
 def masked_mean(values: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
@@ -16,7 +16,7 @@ def masked_mse(
     target: torch.Tensor,
     mask: torch.Tensor,
 ) -> torch.Tensor:
-    error = (prediction - target).pow(2).mean(dim=-1)
+    error = (prediction - target).square().mean(dim=-1)
     return masked_mean(error, mask)
 
 
@@ -25,7 +25,7 @@ def masked_mse_scalar(
     target: torch.Tensor,
     mask: torch.Tensor,
 ) -> torch.Tensor:
-    error = (prediction - target).pow(2)
+    error = (prediction - target).square()
     return masked_mean(error, mask)
 
 
@@ -41,7 +41,5 @@ def gaussian_nll(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     clamped_logvar = logvar.clamp(min=logvar_min, max=logvar_max)
     variance = torch.exp(clamped_logvar).clamp_min(eps)
-    nll = 0.5 * (
-        ((target - mean).pow(2) / variance) + clamped_logvar + math.log(2.0 * math.pi)
-    )
+    nll = 0.5 * (((target - mean).square() / variance) + clamped_logvar + _LOG_2PI)
     return masked_mean(nll, mask), clamped_logvar

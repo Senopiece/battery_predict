@@ -4,6 +4,7 @@ import math
 
 import torch
 from torch import nn
+from torch.nn import functional as F
 
 from battery_predict.models.layers import FeedForward
 from battery_predict.training.config import DecoderConfig, PredictorConfig
@@ -17,22 +18,42 @@ def rotate_half(x: torch.Tensor) -> torch.Tensor:
 
 
 class RotaryEmbedding(nn.Module):
-    def __init__(self, head_dim: int, base: float = 10000.0):
+    def __init__(self, head_dim: int, base: float = 10000.0, max_positions: int = 1024):
         super().__init__()
         if head_dim % 2 != 0:
             raise ValueError(
                 "Rotary embedding requires an even attention head dimension."
             )
-        inv_freq = 1.0 / (base ** (torch.arange(0, head_dim, 2).float() / head_dim))
+        self.head_dim = head_dim
+        inv_freq = 1.0 / (
+            base ** (torch.arange(0, head_dim, 2, dtype=torch.float32) / head_dim)
+        )
         self.register_buffer("inv_freq", inv_freq, persistent=False)
+        self._build_cache(max_positions)
 
-    def forward(self, positions: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        freqs = torch.outer(positions.float(), self.inv_freq)
+    def _build_cache(self, max_positions: int) -> None:
+        positions = torch.arange(max_positions, dtype=torch.float32)
+        freqs = torch.outer(positions, self.inv_freq)
         emb = torch.cat((freqs, freqs), dim=-1)
-        return emb.cos(), emb.sin()
+        self.register_buffer("cos_cached", emb.cos(), persistent=False)
+        self.register_buffer("sin_cached", emb.sin(), persistent=False)
 
-    def apply(self, tensor: torch.Tensor, positions: torch.Tensor) -> torch.Tensor:
-        cos, sin = self.forward(positions)
+    def _ensure_cache(self, steps: int) -> None:
+        if steps <= self.cos_cached.size(0):
+            return
+        self._build_cache(steps)
+
+    def get_cos_sin(
+        self, steps: int, device: torch.device, dtype: torch.dtype
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        self._ensure_cache(steps)
+        cos = self.cos_cached[:steps].to(device=device, dtype=dtype)
+        sin = self.sin_cached[:steps].to(device=device, dtype=dtype)
+        return cos, sin
+
+    def apply(
+        self, tensor: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor
+    ) -> torch.Tensor:
         cos = cos.unsqueeze(0).unsqueeze(0)
         sin = sin.unsqueeze(0).unsqueeze(0)
         return (tensor * cos) + (rotate_half(tensor) * sin)
@@ -40,7 +61,12 @@ class RotaryEmbedding(nn.Module):
 
 class CausalSelfAttention(nn.Module):
     def __init__(
-        self, d_model: int, num_heads: int, dropout: float, rotary_base: float
+        self,
+        d_model: int,
+        num_heads: int,
+        dropout: float,
+        rotary_base: float,
+        max_positions: int,
     ):
         super().__init__()
         if d_model % num_heads != 0:
@@ -51,7 +77,24 @@ class CausalSelfAttention(nn.Module):
         self.qkv = nn.Linear(d_model, d_model * 3)
         self.out = nn.Linear(d_model, d_model)
         self.dropout = nn.Dropout(dropout)
-        self.rotary = RotaryEmbedding(self.head_dim, base=rotary_base)
+        self._build_causal_cache(max_positions)
+        self.rotary = RotaryEmbedding(
+            self.head_dim,
+            base=rotary_base,
+            max_positions=max_positions,
+        )
+
+    def _build_causal_cache(self, max_positions: int) -> None:
+        causal = torch.triu(
+            torch.ones((max_positions, max_positions), dtype=torch.bool),
+            diagonal=1,
+        )
+        self.register_buffer("causal_cached", causal, persistent=False)
+
+    def _ensure_causal_cache(self, steps: int) -> None:
+        if steps <= self.causal_cached.size(0):
+            return
+        self._build_causal_cache(steps)
 
     def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         batch, steps, dim = x.shape
@@ -61,27 +104,28 @@ class CausalSelfAttention(nn.Module):
         k = k.view(batch, steps, self.num_heads, self.head_dim).transpose(1, 2)
         v = v.view(batch, steps, self.num_heads, self.head_dim).transpose(1, 2)
 
-        positions = torch.arange(steps, device=x.device)
-        q = self.rotary.apply(q, positions)
-        k = self.rotary.apply(k, positions)
+        cos, sin = self.rotary.get_cos_sin(steps, device=x.device, dtype=q.dtype)
+        q = self.rotary.apply(q, cos, sin)
+        k = self.rotary.apply(k, cos, sin)
 
-        attn_scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale
-        causal_mask = torch.triu(
-            torch.ones((steps, steps), device=x.device, dtype=torch.bool),
-            diagonal=1,
+        self._ensure_causal_cache(steps)
+        causal = self.causal_cached[:steps, :steps].to(device=x.device)
+        invalid_key = ~mask.unsqueeze(1).unsqueeze(2)
+        attn_block = causal.unsqueeze(0).unsqueeze(0) | invalid_key
+        attn_bias = torch.zeros(
+            (batch, 1, steps, steps), device=x.device, dtype=q.dtype
         )
-        attn_scores = attn_scores.masked_fill(causal_mask, float("-inf"))
+        attn_bias = attn_bias.masked_fill(attn_block, float("-inf"))
 
-        key_mask = ~mask.unsqueeze(1).unsqueeze(2)
-        attn_scores = attn_scores.masked_fill(key_mask, float("-inf"))
-
-        attn_weights = torch.softmax(attn_scores, dim=-1)
-        attn_weights = torch.where(
-            torch.isnan(attn_weights), torch.zeros_like(attn_weights), attn_weights
+        attended = F.scaled_dot_product_attention(
+            q,
+            k,
+            v,
+            attn_mask=attn_bias,
+            dropout_p=self.dropout.p if self.training else 0.0,
+            is_causal=False,
+            scale=self.scale,
         )
-        attn_weights = self.dropout(attn_weights)
-
-        attended = torch.matmul(attn_weights, v)
         attended = attended.transpose(1, 2).contiguous().view(batch, steps, dim)
         attended = self.out(attended)
         return attended * mask.unsqueeze(-1).to(attended.dtype)
@@ -96,6 +140,7 @@ class PredictorBlock(nn.Module):
             num_heads=config.attention_heads,
             dropout=config.dropout,
             rotary_base=config.rotary_base,
+            max_positions=config.max_cycle_positions,
         )
         self.dropout1 = nn.Dropout(config.dropout)
         self.norm2 = nn.LayerNorm(config.d_model)
