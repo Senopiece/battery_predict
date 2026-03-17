@@ -5,6 +5,7 @@ from pathlib import Path
 import random
 from typing import Any
 
+import torch
 import lightning as L
 from lightning.pytorch.loggers import TensorBoardLogger
 
@@ -98,6 +99,8 @@ def fit_experiment(
     if config.seed is None:
         config.seed = resolve_seed(config.seed)
         print(f"[INFO] Generated random 5-digit seed: {config.seed}")
+
+    torch.set_float32_matmul_precision("high")
 
     seed_everything_local(config.seed)
     L.seed_everything(config.seed, workers=True)

@@ -9,9 +9,9 @@ data:
   min_observed_cycles: 2
   train_batch_size: 16
   eval_batch_size: 16
-  num_workers: 0
+  num_workers: 4
   pin_memory: true
-  persistent_workers: false
+  persistent_workers: true
   utilize_epoch_windows: 512
   utilize_val_epoch_windows: 256
   dt_seconds: 1.0
