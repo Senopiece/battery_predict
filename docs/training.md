@@ -37,7 +37,7 @@ Outputs are written under `outputs/<experiment_name>/<timestamp>/`:
 Training is implemented with PyTorch Lightning (`BatteryPredictorModule`). The loop is:
 
 1. **Setup:** datamodule loads all files, builds per-split window indices, fits capacity normalization stats on the training split.
-2. **Epoch:** sample `epoch_samples` windows from train, `val_epoch_samples` from val.
+2. **Epoch:** draw up to `utilize_epoch_windows` windows from train and `utilize_val_epoch_windows` from val.
 3. **Forward pass:** encode all cycles in the window flat across the batch, then run the causal predictor, then decode.
 4. **Loss:** compute latent loss and capacity loss, sum with `latent_weight`.
 5. **Backward + clip + step:** gradient clipping at `gradient_clip_val`, AdamW optimizer, cosine LR schedule.

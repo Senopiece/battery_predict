@@ -20,8 +20,8 @@ class DataConfig:
     num_workers: int = 0
     pin_memory: bool = True
     persistent_workers: bool = False
-    epoch_samples: int | None = 1024
-    val_epoch_samples: int | None = 1024
+    utilize_epoch_windows: int | None = 1024
+    utilize_val_epoch_windows: int | None = 1024
     dt_seconds: float = 1.0
     min_discharge_capacity_ah: float = 1e-6
     drop_cycles_without_discharge: bool = True

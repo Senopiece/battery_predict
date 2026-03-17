@@ -251,11 +251,11 @@ class BatteryDataModule(L.LightningDataModule):
 
         sampler = None
         shuffle = False
-        if self.config.epoch_samples is not None:
+        if self.config.utilize_epoch_windows is not None:
             sampler = RandomSampler(
                 self.train_dataset,
-                replacement=self.config.epoch_samples > len(self.train_dataset),
-                num_samples=self.config.epoch_samples,
+                replacement=self.config.utilize_epoch_windows > len(self.train_dataset),
+                num_samples=self.config.utilize_epoch_windows,
             )
         else:
             shuffle = True
@@ -278,11 +278,12 @@ class BatteryDataModule(L.LightningDataModule):
                 "DataModule.setup('fit') must be called before val_dataloader()."
             )
         sampler = None
-        if getattr(self.config, "val_epoch_samples", None) is not None:
+        if getattr(self.config, "utilize_val_epoch_windows", None) is not None:
             sampler = RandomSampler(
                 self.val_dataset,
-                replacement=self.config.val_epoch_samples > len(self.val_dataset),
-                num_samples=self.config.val_epoch_samples,
+                replacement=self.config.utilize_val_epoch_windows
+                > len(self.val_dataset),
+                num_samples=self.config.utilize_val_epoch_windows,
             )
         return DataLoader(
             self.val_dataset,

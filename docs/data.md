@@ -15,7 +15,7 @@ Validity must always be inferred from `isfinite(voltage) & isfinite(current)`. P
 
 Filenames are 4-character base62 content hashes of the source data.
 
-To inspect real examples of this processed format, start with [notebooks/dataset/set.ipynb](notebooks/dataset/set.ipynb).
+To inspect real examples of this processed format, start with [notebooks/dataset/set.ipynb](../notebooks/dataset/set.ipynb).
 
 ---
 
@@ -28,10 +28,10 @@ The repository keeps raw source datasets separately from the processed training 
 
 Use the dataset-specific notebooks when you want to inspect source-data quirks before conversion:
 
-- [notebooks/dataset/batterylife.ipynb](notebooks/dataset/batterylife.ipynb)
-- [notebooks/dataset/sk.ipynb](notebooks/dataset/sk.ipynb)
+- [notebooks/dataset/batterylife.ipynb](../notebooks/dataset/batterylife.ipynb)
+- [notebooks/dataset/sk.ipynb](../notebooks/dataset/sk.ipynb)
 
-Use [notebooks/dataset/set.ipynb](notebooks/dataset/set.ipynb) when you want to inspect exactly what the model trains on after conversion.
+Use [notebooks/dataset/set.ipynb](../notebooks/dataset/set.ipynb) when you want to inspect exactly what the model trains on after conversion.
 
 ---
 
@@ -58,19 +58,19 @@ Splits are performed at the **battery-file level** to prevent leakage between cy
 Algorithm:
 1. Sort all files by name (deterministic, hash-based names give stable ordering).
 2. Shuffle with a seeded `random.Random(split_seed)`.
-3. Compute `n_test = max(1, round(N * test_fraction))` and `n_val = max(1, round(N * val_fraction))`.
+3. Let `N` be the total number of battery files after filtering, then compute `n_test = max(1, round(N * test_fraction))` and `n_val = max(1, round(N * val_fraction))`.
 4. Clamp the sum so at least 1 file remains for training.
 5. Assign: first `n_test` → test, next `n_val` → val, remainder → train.
 
 **Nuance:** `split_seed` is separate from the global training `seed`. This is intentional: you can change the model seed (for ensemble experiments) while keeping the same data split, or vice versa.
 
-**Nuance:** rounding can cause the actual split ratios to differ slightly from the configured fractions for small datasets. Use the notebook `epoch_samples` analysis cell to inspect the actual window counts.
+**Nuance:** the configured split fractions are guaranteed only at the battery-file level. Since battery files can contain very different numbers of cycles (and therefore windows), the effective train/val/test ratio by cycles or windows can slightly differ from the file-level split ratio. Use the `utilize_epoch_windows` analysis cell in [notebooks/dataset/set.ipynb](../notebooks/dataset/set.ipynb) to inspect the actual window counts per split.
 
 ---
 
 ## Window Sampling
 
-Each training sample is a **contiguous window of `cycle_window` consecutive cycles** from one battery file.
+Each training window is a **contiguous window of `cycle_window` consecutive cycles** from one battery file.
 
 Window index construction:
 - If a battery has fewer than `min_observed_cycles` valid cycles: **excluded entirely**.
@@ -79,7 +79,7 @@ Window index construction:
 
 This means longer-lived batteries contribute exponentially more windows. It is a deliberate bias toward batteries with rich degradation trajectories.
 
-**Nuance — epoch sampling:** Because longer batteries contribute many more windows, drawing all available windows per epoch would oversample batteries with many cycles. `epoch_samples` caps the number of windows drawn per training epoch via `torch.utils.data.RandomSampler`. If `epoch_samples > total_windows`, sampling is done with replacement. The same cap applies to validation via `val_epoch_samples`.
+**Nuance — epoch window usage:** Because longer batteries contribute many more windows, drawing all available windows per epoch would oversample batteries with many cycles. `utilize_epoch_windows` caps the number of windows drawn per training epoch via `torch.utils.data.RandomSampler`. If `utilize_epoch_windows > total_windows`, sampling is done with replacement. The same cap applies to validation via `utilize_val_epoch_windows`.
 
 **Nuance — sampling randomness:** The random sampler for epoch sampling is seeded by Lightning's worker seeding tied to the global experiment seed. Different seeds between runs will draw different window subsets per epoch, but the split and the full window index are deterministic given `split_seed`.
 
@@ -87,11 +87,27 @@ This means longer-lived batteries contribute exponentially more windows. It is a
 
 ## Collation
 
-Within a batch, cycles from different batteries may have different signal lengths. The collation function:
+Within a batch, signal lengths can differ both across batteries and across cycles from the same battery. The collation function:
 
-1. Pads all signals in the batch to `max_samples` (the longest signal in the batch, not the dataset-level max).
-2. Pads cycle sequences to `max_cycles` (the longest window in the batch).
-3. Constructs `signal_mask`, `sequence_mask`, `prediction_mask`, and `target_capacity_mask`.
+1. Pads all signals in the batch to `max_samples`.
+2. Pads cycle sequences to `max_cycles` (the longest window in the batch). For the current processed dataset and default config, this is a pure no-op because all files exceed `cycle_window` and every sampled window has exactly `cycle_window` cycles. The padding path is kept for compatibility with future datasets/configs that may include shorter windows.
+3. Constructs `signal_mask`, `sequence_mask`, `prediction_mask`, and `target_capacity_mask` for model masking and loss masking.
+
+Let:
+- `B` = batch size
+- `C` = `max_cycles` in the batch
+- `T` = `max_samples` in the batch
+
+Mask and tensor meanings:
+- `signals`: shape `(B, C, T, 2)`. Padded signal tensor (voltage/current channels).
+- `signal_mask`: shape `(B, C, T)`. `True` where a timestep in a cycle is real data, `False` where it is timestep padding. This prevents attention/pooling from treating padded timesteps as observed signal.
+- `sequence_mask`: shape `(B, C)`. `True` where a cycle slot in the window is real, `False` where it is cycle padding. This is the base mask for sequence-level operations.
+- `prediction_mask`: shape `(B, C-1)`, computed as `sequence_mask[:, 1:] & sequence_mask[:, :-1]`. `True` for valid transition pairs `(t -> t+1)` where both cycles exist. Used for next-latent supervision.
+- `target_capacity_mask`: shape `(B, C-1)`, computed as `capacity_valid[:, 1:] & prediction_mask`. `True` only when the transition is valid and the target cycle's discharge capacity is valid. Used for capacity supervision.
+
+Reasoning:
+- Separate masks let the pipeline handle two different notions of validity: signal-level validity (timesteps), sequence-level validity (cycles), and target-level validity (capacity labels).
+- `prediction_mask` and `target_capacity_mask` can differ: a transition may be valid for latent prediction but excluded from capacity loss if capacity validity fails.
 
 **Nuance:** Padding is always with zeros for signals (not NaN), and the corresponding mask positions are `False`. This is safe because the model zeros out padded positions after every attention and feed-forward operation.
 

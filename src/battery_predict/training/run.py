@@ -109,11 +109,11 @@ def fit_experiment(
     train_total = len(datamodule.train_dataset) if datamodule.train_dataset else 0
     val_total = len(datamodule.val_dataset) if datamodule.val_dataset else 0
     train_samples = (
-        config.data.epoch_samples
-        if config.data.epoch_samples is not None
+        config.data.utilize_epoch_windows
+        if config.data.utilize_epoch_windows is not None
         else train_total
     )
-    val_samples = getattr(config.data, "val_epoch_samples", None)
+    val_samples = getattr(config.data, "utilize_val_epoch_windows", None)
     if val_samples is None:
         val_samples = val_total
     print(

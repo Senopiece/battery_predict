@@ -47,7 +47,7 @@ def test_collate_cycle_windows_pads_signals_and_sequences() -> None:
     assert result["sequence_mask"].tolist() == [[True, True], [True, False]]
 
 
-def test_datamodule_uses_epoch_samples_in_train_sampler(tmp_path) -> None:
+def test_datamodule_uses_utilize_epoch_windows_in_train_sampler(tmp_path) -> None:
     dataset_dir = tmp_path / "set"
     dataset_dir.mkdir()
     for idx in range(10):
@@ -58,8 +58,8 @@ def test_datamodule_uses_epoch_samples_in_train_sampler(tmp_path) -> None:
     config = DataConfig(
         dataset_dir=str(dataset_dir),
         cycle_window=4,
-        epoch_samples=5,
-        val_epoch_samples=3,
+        utilize_epoch_windows=5,
+        utilize_val_epoch_windows=3,
         train_batch_size=2,
         eval_batch_size=2,
     )
