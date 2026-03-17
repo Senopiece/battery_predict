@@ -76,10 +76,3 @@ callbacks:
   checkpoint_mode: min
   checkpoint_filename: best-{epoch:02d}-{val_loss:.4f}
   save_top_k: 1
-clearml:
-  enabled: true
-  project_name: battery-predict
-  task_name: latent_capacity_predictor
-  tags: [battery, lightning, transformer]
-  output_uri: null
-  offline_mode: false

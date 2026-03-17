@@ -3,13 +3,9 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 import random
-from typing import Any
-
 import torch
 import lightning as L
-from lightning.pytorch.loggers import TensorBoardLogger
-
-from clearml import Task
+from lightning.pytorch.loggers import LitLogger
 
 from battery_predict.data import BatteryDataModule
 from battery_predict.training.callbacks import build_callbacks
@@ -54,8 +50,6 @@ def create_trainer(
     *,
     enable_live_plot: bool = False,
 ) -> L.Trainer:
-    logger: Any = TensorBoardLogger(save_dir=str(run_dir), name="tb")
-
     callbacks = build_callbacks(config, run_dir, enable_live_plot=enable_live_plot)
     return L.Trainer(
         accelerator=config.trainer.accelerator,
@@ -68,26 +62,8 @@ def create_trainer(
         accumulate_grad_batches=config.trainer.accumulate_grad_batches,
         default_root_dir=str(run_dir),
         callbacks=callbacks,
-        logger=logger,
+        logger=LitLogger(root_dir=run_dir, name=config.experiment_name),
     )
-
-
-def maybe_init_clearml_task(config: ExperimentConfig) -> Task | None:
-    if not config.clearml.enabled:
-        return None
-
-    if config.clearml.offline_mode:
-        Task.set_offline(True)
-
-    task = Task.init(
-        project_name=config.clearml.project_name,
-        task_name=config.clearml.task_name,
-        output_uri=config.clearml.output_uri,
-    )
-    if config.clearml.tags:
-        task.add_tags(list(config.clearml.tags))
-    task.connect(config.to_dict(), name="config")
-    return task
 
 
 def fit_experiment(
@@ -107,7 +83,6 @@ def fit_experiment(
     run_dir = make_run_dir(config)
     config.save_yaml(run_dir / "config.yaml")
     datamodule = create_datamodule(config)
-    clearml_task = maybe_init_clearml_task(config)
     # Print sample counts and percentages for train and val
     train_total = len(datamodule.train_dataset) if datamodule.train_dataset else 0
     val_total = len(datamodule.val_dataset) if datamodule.val_dataset else 0
@@ -127,12 +102,8 @@ def fit_experiment(
     )
     module = create_module(config, datamodule)
     trainer = create_trainer(config, run_dir, enable_live_plot=enable_live_plot)
-    try:
-        trainer.fit(module, datamodule=datamodule)
-        if run_test:
-            datamodule.setup("test")
-            trainer.test(module, datamodule=datamodule, ckpt_path="best")
-    finally:
-        if clearml_task is not None:
-            clearml_task.close()
+    trainer.fit(module, datamodule=datamodule)
+    if run_test:
+        datamodule.setup("test")
+        trainer.test(module, datamodule=datamodule, ckpt_path="best")
     return trainer, module, datamodule, run_dir

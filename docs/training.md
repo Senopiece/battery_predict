@@ -120,7 +120,7 @@ The global seed controls:
 - Python `random`, `numpy`, `torch` (including CUDA seeds).
 - Lightning worker seeds.
 
-`seed: null` in config generates a random 5-digit integer seed at runtime, prints it, and saves it to the run's `config.yaml` and ClearML config payload. This allows full reproducibility after the fact even for exploratory runs.
+`seed: null` in config generates a random 5-digit integer seed at runtime, prints it, and saves it to the run's `config.yaml`. This allows full reproducibility after the fact even for exploratory runs.
 
 **Nuance:** `data.split_seed` is independent of the global seed and controls only the battery-file split. This separation allows sweeping model hyperparameters or seeds without changing the train/val/test file assignment.
 
@@ -144,9 +144,7 @@ Logged metrics per split (`train`, `val`, `test`):
 | `{split}/capacity_mae_ah` | mean absolute error in Ah (denormalized) |
 | `{split}/logvar_mean` | mean predicted log-variance *(only when `learn_gaussian_likelihood: true`)* |
 
-**ClearML:** when `clearml.enabled: true`, a ClearML Task is initialized via `Task.init(...)` before training. The resolved config dict is attached to the task as a "config" parameter group. Metrics are reported via TensorBoard logger and automatically picked up by the ClearML agent. Offline mode writes to a local task package instead of the server.
-
-**Fallback:** when ClearML is disabled, a TensorBoard logger writes event files under `<run_dir>/tb/`.
+Metrics are logged via LitLogger to the [Lightning Experiments](https://lightning.ai/) platform. Local log files are written under `<run_dir>/` (i.e. `outputs/<experiment_name>/<timestamp>/`). When logged in to Lightning AI, runs also appear in the cloud dashboard automatically.
 
 ---
 

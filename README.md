@@ -62,7 +62,7 @@ uv sync --extra dev
 ## Training
 
 - CLI training: `uv run battery-predict-train --config configs/default.yaml`
-- Logging backend: ClearML (enabled by default in `configs/default.yaml`)
+- Logging backend: LitLogger (Lightning Experiments platform)
 
 The code path has been verified with:
 
@@ -83,12 +83,6 @@ src/battery_predict/
 tests/         targeted unit and smoke tests
 docs/          design and data notes
 ```
-
-## ClearML
-
-Training initializes a native ClearML task and uses TensorBoard-compatible metric logging. Update the `clearml` section in `configs/default.yaml` for your server/project/task naming.
-
-For a local-only run without ClearML, set `clearml.enabled: false` in your config.
 
 ## Data Conversion
 

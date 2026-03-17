@@ -114,16 +114,6 @@ class CallbackConfig:
 
 
 @dataclass(slots=True)
-class ClearMLConfig:
-    enabled: bool = True
-    project_name: str = "battery-predict"
-    task_name: str = "latent_capacity_predictor"
-    tags: tuple[str, ...] = ("battery", "lightning", "transformer")
-    output_uri: str | None = None
-    offline_mode: bool = False
-
-
-@dataclass(slots=True)
 class ExperimentConfig:
     experiment_name: str = "latent_capacity_predictor"
     seed: int | None = None
@@ -139,7 +129,6 @@ class ExperimentConfig:
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
     trainer: TrainerConfig = field(default_factory=TrainerConfig)
     callbacks: CallbackConfig = field(default_factory=CallbackConfig)
-    clearml: ClearMLConfig = field(default_factory=ClearMLConfig)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
