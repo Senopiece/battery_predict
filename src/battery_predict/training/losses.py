@@ -20,6 +20,15 @@ def masked_mse(
     return masked_mean(error, mask)
 
 
+def masked_mse_scalar(
+    prediction: torch.Tensor,
+    target: torch.Tensor,
+    mask: torch.Tensor,
+) -> torch.Tensor:
+    error = (prediction - target).pow(2)
+    return masked_mean(error, mask)
+
+
 def gaussian_nll(
     mean: torch.Tensor,
     logvar: torch.Tensor,

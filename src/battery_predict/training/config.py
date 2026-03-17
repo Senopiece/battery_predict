@@ -72,6 +72,7 @@ class ScheduledSamplingConfig:
 @dataclass(slots=True)
 class LossConfig:
     latent_weight: float = 0.5
+    learn_gaussian_likelihood: bool = True
     logvar_min: float = -10.0
     logvar_max: float = 3.0
     capacity_eps: float = 1e-6
