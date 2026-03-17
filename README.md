@@ -2,9 +2,20 @@
 
 Battery Predict trains a latent dynamics model over battery discharge cycles to forecast next-cycle capacity from variable-length voltage and current traces.
 
+## Onboarding
+
+If you are new to the repo, use this order:
+
+1. Read [docs/data.md](docs/data.md) to understand the tensor format, capacity target, split logic, and window sampling.
+2. Read [docs/model.md](docs/model.md) to understand the encoder, latent dynamics model, and decoder.
+3. Read [docs/training.md](docs/training.md) to understand the Lightning training loop, losses, scheduler, and logging.
+4. Open [notebooks/dataset/set.ipynb](notebooks/dataset/set.ipynb) to inspect the processed dataset directly.
+5. If you need source-data context, inspect [notebooks/dataset/batterylife.ipynb](notebooks/dataset/batterylife.ipynb) and [notebooks/dataset/sk.ipynb](notebooks/dataset/sk.ipynb).
+
 ## Repository Scope
 
 - `data/set/*.npy`: processed battery tensors with shape `(cycle, sample, channel)`.
+- `data/raw/batterylife` and `data/raw/sk`: raw dataset staging areas plus dataset-specific conversion scripts.
 - `src/battery_predict`: reusable data, model, loss, and training code.
 - `notebooks/dataset`: dataset inspection notebooks.
 
@@ -27,7 +38,7 @@ The model pipeline is:
 
 1. Encode each cycle signal into a latent vector.
 2. Model degradation dynamics across the sequence of cycle latents.
-3. Predict the next latent residual and decode next-cycle capacity mean and variance.
+3. Predict the next latent residual and decode next-cycle capacity.
 
 ## Environment Setup
 
@@ -61,6 +72,9 @@ The code path has been verified with:
 ## Project Layout
 
 ```text
+data/
+  raw/         raw source datasets and conversion scripts
+  set/         processed project tensor format (.npy per battery)
 src/battery_predict/
   data/        dataset and LightningDataModule
   models/      encoder, autoregressive transformer, decoder
@@ -72,9 +86,18 @@ docs/          design and data notes
 
 ## ClearML
 
-Training uses ClearML through the Lightning logger adapter. Update the `clearml` section in `configs/default.yaml` for your server/project/task naming.
+Training initializes a native ClearML task and uses TensorBoard-compatible metric logging. Update the `clearml` section in `configs/default.yaml` for your server/project/task naming.
 
 For a local-only run without ClearML, set `clearml.enabled: false` in your config.
+
+## Data Conversion
+
+Raw datasets are not consumed directly by the training code. They are first converted into the project tensor format under `data/set/`.
+
+- `data/raw/batterylife/convert.py` converts the BatteryLife sodium-ion raw files from `data/raw/batterylife/set/naion/`.
+- `data/raw/sk/convert.py` is the entry point for converting the SK raw dataset staged under `data/raw/sk/set/`.
+
+If you are validating data quality or debugging preprocessing, start from the raw-dataset notebooks in `notebooks/dataset/` and then compare against the processed-set notebook.
 
 ## More Detail
 
