@@ -1,28 +1,50 @@
+"""Training CLI using Typer."""
+
 from __future__ import annotations
 
-import argparse
+from pathlib import Path
+from typing import Optional
+
+import typer
 
 from battery_predict.training.config import load_experiment_config
-from battery_predict.training.run import fit_experiment
+from battery_predict.training.orchestration import fit_experiment
+
+app = typer.Typer(help="Train the battery latent capacity predictor.")
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Train the battery latent predictor.")
-    parser.add_argument(
-        "--config", type=str, default=None, help="Path to a YAML config file."
+@app.command()
+def train(
+    config: Optional[Path] = typer.Option(
+        None,
+        "--config",
+        help="Path to experiment config YAML. If None, uses built-in defaults.",
+    ),
+) -> None:
+    """Train the model with optional config override.
+
+    Example:
+        battery-predict-train --config configs/default.yaml
+    """
+    loaded_config = load_experiment_config(config)
+    trainer, _, _, run_dir = fit_experiment(loaded_config, enable_live_plot=False)
+
+    # Find and display best checkpoint
+    checkpoint_callback = next(
+        (cb for cb in trainer.callbacks if hasattr(cb, "best_model_path")),
+        None,
     )
-    return parser
+
+    typer.echo(f"\n✓ Training complete")
+    typer.echo(f"  Run directory:   {run_dir}")
+    if checkpoint_callback:
+        typer.echo(f"  Best checkpoint: {checkpoint_callback.best_model_path}")
 
 
 def main() -> None:
-    parser = build_parser()
-    args = parser.parse_args()
-    config = load_experiment_config(args.config)
-    trainer, _, _, run_dir = fit_experiment(config, enable_live_plot=False)
-    checkpoint_callback = next(
-        callback
-        for callback in trainer.callbacks
-        if hasattr(callback, "best_model_path")
-    )
-    print(f"Run directory: {run_dir}")
-    print(f"Best checkpoint: {checkpoint_callback.best_model_path}")
+    """Entry point for CLI."""
+    app()
+
+
+if __name__ == "__main__":
+    main()

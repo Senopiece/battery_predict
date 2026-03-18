@@ -3,8 +3,9 @@ from __future__ import annotations
 import torch
 from torch import nn
 
+from battery_predict.models.decoder import CapacityDecoder
 from battery_predict.models.encoder import CycleEncoder
-from battery_predict.models.predictor import CapacityDecoder, LatentPredictor
+from battery_predict.models.predictor import LatentPredictor
 from battery_predict.training.config import (
     DecoderConfig,
     EncoderConfig,

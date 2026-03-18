@@ -1,105 +1,180 @@
 # Battery Predict
 
-Battery Predict trains a latent dynamics model over battery discharge cycles to forecast next-cycle capacity from variable-length voltage and current traces.
+**Build and train a latent degradation model to forecast battery discharge capacity from voltage/current signals.**
 
-## Onboarding
+---
 
-If you are new to the repo, use this order:
+## Quick Start
 
-1. Read [docs/data.md](docs/data.md) to understand the tensor format, capacity target, split logic, and window sampling.
-2. Read [docs/model.md](docs/model.md) to understand the encoder, latent dynamics model, and decoder.
-3. Read [docs/training.md](docs/training.md) to understand the Lightning training loop, losses, scheduler, and logging.
-4. Open [data/set/_inspect.ipynb](data/set/_inspect.ipynb) to inspect the processed dataset directly.
-5. If you need source-data context, inspect [data/raw/batterylife/inspect.ipynb](data/raw/batterylife/inspect.ipynb) and [data/raw/sk/inspect.ipynb](data/raw/sk/inspect.ipynb).
-
-## Repository Scope
-
-- `data/set/*.npy`: processed battery tensors with shape `(cycle, sample, channel)`.
-- `data/raw/batterylife` and `data/raw/sk`: raw dataset staging areas plus dataset-specific conversion scripts.
-- `src/battery_predict`: reusable data, model, loss, and training code.
-- `data/set/_inspect.ipynb`, `data/raw/batterylife/inspect.ipynb`, and `data/raw/sk/inspect.ipynb`: dataset inspection notebooks.
-
-## Modeling Goal
-
-Each cycle contains a variable-length signal with two channels:
-
-- voltage
-- current
-
-The training target is cycle discharge capacity, computed from the processed signal by integrating the magnitude of negative current over time:
-
-$$
-Q_{discharge} = \sum_t \max(-I_t, 0) \cdot \Delta t / 3600
-$$
-
-with $\Delta t = 1s$ because the converted dataset is uniformly resampled.
-
-The model pipeline is:
-
-1. Encode each cycle signal into a latent vector.
-2. Model degradation dynamics across the sequence of cycle latents.
-3. Predict the next latent residual and decode next-cycle capacity.
-
-## Environment Setup
-
-This project targets Python 3.12 so CUDA-enabled PyTorch can be installed reliably on Windows.
-
-The repository pin is stored in [.python-version](.python-version), and PyTorch is sourced from the CUDA 12.4 wheel index through [pyproject.toml](pyproject.toml).
-
-Create or refresh the environment with `uv`:
-
+### 1. Setup environment
 ```bash
 uv sync --extra dev
 ```
 
-If an older `.venv` is locked by another process on Windows, create a clean side environment and sync into it:
+### 2. Train the model
+```bash
+uv run battery-predict-train --config configs/default.yaml
+```
 
+### 3. Inspect results
+Check `outputs/<experiment_name>/<timestamp>/` for checkpoints and logs.
+
+---
+
+## Repository Map
+
+### 📊 Data
+- **`data/set/`** — Processed battery tensors (`.npy` files, one per cell)
+  - Quick inspect: [data/set/_inspect.ipynb](data/set/_inspect.ipynb)
+- **`data/raw/batterylife/`** — BatteryLife raw dataset staging area
+  - Browse raw data: [data/raw/batterylife/inspect.ipynb](data/raw/batterylife/inspect.ipynb)
+  - Convert to processed format: `data/raw/batterylife/convert.py`
+- **`data/raw/sk/`** — SK dataset staging area  
+  - Browse: [data/raw/sk/inspect.ipynb](data/raw/sk/inspect.ipynb)
+  - Convert: `data/raw/sk/convert.py`
+
+### 💾 Source Code
+- **`src/battery_predict/`**
+  - `data/` — Dataset loading and Lightning DataModule  
+  - `models/` — Encoder, latent predictor, capacity decoder
+  - `training/` — Config, LightningModule, training loop, CLI  
+  - `utils/` — Shared utilities (split, capacity, dataset analysis)
+
+### 📖 Documentation
+- **`docs/data.md`** — Tensor format, split strategy, masks, normalization
+- **`docs/model.md`** — Architecture: encoder → predictor → decoder  
+- **`docs/training.md`** — Training loop, losses, logging, holdout evaluation
+
+### ⚙️ Configuration
+- **`configs/default.yaml`** — Default training config (model, data, optimizer, scheduler)
+
+---
+
+## Learning Path
+
+**New to the repo?** Follow this order:
+
+1. **Understand the data format** → Read [docs/data.md](docs/data.md)
+   - Tensor layout, split strategy, capacity computation
+   - Then inspect with [data/set/_inspect.ipynb](data/set/_inspect.ipynb)
+
+2. **Understand the model** → Read [docs/model.md](docs/model.md)
+   - Three-stage pipeline: encoder → predictor → decoder
+   - Architecture choices and design rationale
+
+3. **Understand training** → Read [docs/training.md](docs/training.md)
+   - Three-term loss (L_direct + L_pred_latent + L_pred_decode)
+   - Logging and evaluation strategy
+
+4. **Run your first training** → Execute:
+   ```bash
+   uv run battery-predict-train --config configs/default.yaml
+   ```
+   - Watch metrics in TensorBoard or ClearML
+   - Find best checkpoint in `outputs/`
+
+5. **Debug/Explore (optional)**  
+   - Dataset analysis: [data/set/_inspect.ipynb](data/set/_inspect.ipynb)
+   - Raw data inspection: [data/raw/batterylife/inspect.ipynb](data/raw/batterylife/inspect.ipynb)
+
+---
+
+## Key Concepts
+
+### Three-Term Loss
+$$L_{total} = \alpha \cdot L_{direct} + \beta \cdot L_{pred\_latent} + \gamma \cdot L_{pred\_decode}$$
+
+- **L_direct:** Direct capacity supervision from encoded latents
+- **L_pred_latent:** Latent trajectory alignment (with gradient detach)  
+- **L_pred_decode:** Main forecasting task (predicted latent → future capacity)
+
+### Train/Validation Split
+- Random file-level split (no cycle leakage)
+- Model selection: lowest `val/loss`
+- Evaluation: manually held-out BatteryLife NA-ion files
+
+### Manual Holdout Batteries
+```
+NA-ion_4500-30_20250114232539_DefaultGroup_45_8
+NA-ion_270040-1-3-62
+NA-ion_270040-1-8-57
+NA-ion_270040-2-3-12
+```
+Keep these out of training; evaluate separately with best checkpoint.
+
+---
+
+## Experiment Tracking
+
+### ClearML (via TensorBoard)
+```bash
+# Enable in configs/default.yaml (default: true)
+clearml:
+  enabled: true
+  project_name: battery-predict
+```
+
+### Local Only
+```bash
+# Disable in configs/default.yaml
+clearml:
+  enabled: false
+```
+
+---
+
+## Development
+
+### Environment Setup (Locked)
 ```bash
 uv venv --python 3.12
 uv sync --extra dev
 ```
 
-## Training
+### Linting
+```bash
+uv run ruff check src/
+uv run ruff format src/
+```
 
-- CLI training: `uv run battery-predict-train --config configs/default.yaml`
-- Logging backend: ClearML (enabled by default in `configs/default.yaml`)
-- Training uses a train/validation split only; final testing is done manually on held-out BatteryLife NA-ion files documented in [docs/data.md](docs/data.md).
+### Python Version
+- Target: Python 3.12 (see `.python-version`)
+- PyTorch: CUDA 12.4 wheels (via custom index in `pyproject.toml`)
 
-The code path has been verified with:
-
-- a one-epoch real-data smoke fit with validation
+---
 
 ## Project Layout
 
 ```text
-data/
-  raw/         raw source datasets and conversion scripts
-  set/         processed project tensor format (.npy per battery)
-src/battery_predict/
-  data/        dataset and LightningDataModule
-  models/      encoder, autoregressive transformer, decoder
-  training/    config, LightningModule, callbacks, CLI
-  utils/       shared helpers
-docs/          design and data notes
+battery_predict/
+├── data/
+│   ├── raw/              raw datasets + conversion scripts
+│   │   ├── batterylife/
+│   │   │   ├── inspect.ipynb
+│   │   │   └── convert.py
+│   │   └── sk/
+│   │       ├── inspect.ipynb
+│   │       └── convert.py
+│   └── set/              processed tensors (.npy)
+│       └── _inspect.ipynb
+├── src/battery_predict/
+│   ├── data/             dataset module
+│   ├── models/           encoder, predictor, decoder
+│   ├── training/         config, Lightning module, CLI
+│   └── utils/            split, capacity, dataset analysis
+├── configs/
+│   └── default.yaml      experiment config
+├── docs/
+│   ├── data.md           tensor/split/capacity
+│   ├── model.md          architecture
+│   └── training.md       losses/logging/evaluation
+└── pyproject.toml        dependencies & build
 ```
 
-## ClearML
+---
 
-Training initializes a native ClearML task and uses TensorBoard-compatible metric logging. Update the `clearml` section in `configs/default.yaml` for your server/project/task naming.
+## More
 
-For a local-only run without ClearML, set `clearml.enabled: false` in your config.
-
-## Data Conversion
-
-Raw datasets are not consumed directly by the training code. They are first converted into the project tensor format under `data/set/`.
-
-- `data/raw/batterylife/convert.py` converts the BatteryLife sodium-ion raw files from `data/raw/batterylife/set/naion/`.
-- `data/raw/sk/convert.py` is the entry point for converting the SK raw dataset staged under `data/raw/sk/set/`.
-
-If you are validating data quality or debugging preprocessing, start from the raw-dataset notebooks in `data/raw/batterylife/inspect.ipynb` and `data/raw/sk/inspect.ipynb`, then compare against the processed-set notebook at `data/set/_inspect.ipynb`.
-
-## More Detail
-
-- Data format notes: [docs/data.md](docs/data.md)
-- Model summary: [docs/model.md](docs/model.md)
-- Training workflow: [docs/training.md](docs/training.md)
+- **ClearML setup**: See [docs/training.md](docs/training.md) section "ClearML"
+- **Data conversion**: See [docs/data.md](docs/data.md) section "Raw Datasets"
+- **Capacity calculation**: See [docs/data.md](docs/data.md) section "Capacity Computation"

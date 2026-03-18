@@ -1,3 +1,5 @@
+"""Training orchestration: setup, factory functions, and experiment runner."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -8,7 +10,6 @@ from typing import Any
 import torch
 import lightning as L
 from lightning.pytorch.loggers import TensorBoardLogger
-
 from clearml import Task
 
 from battery_predict.data import BatteryDataModule
@@ -19,12 +20,14 @@ from battery_predict.utils.seed import seed_everything_local
 
 
 def resolve_seed(seed: int | None) -> int:
+    """Resolve seed: generate random if None, otherwise convert to int."""
     if seed is None:
         return random.SystemRandom().randint(10000, 99999)
     return int(seed)
 
 
 def make_run_dir(config: ExperimentConfig) -> Path:
+    """Create timestamped run directory for outputs."""
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     run_dir = Path(config.trainer.default_root_dir) / config.experiment_name / timestamp
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -32,6 +35,7 @@ def make_run_dir(config: ExperimentConfig) -> Path:
 
 
 def create_datamodule(config: ExperimentConfig) -> BatteryDataModule:
+    """Instantiate and setup data module."""
     datamodule = BatteryDataModule(config.data)
     datamodule.setup("fit")
     return datamodule
@@ -41,6 +45,7 @@ def create_module(
     config: ExperimentConfig,
     datamodule: BatteryDataModule,
 ) -> BatteryPredictorModule:
+    """Instantiate Lightning module with capacity normalization from data."""
     return BatteryPredictorModule(
         config,
         capacity_mean_ah=datamodule.capacity_mean_ah,
@@ -54,8 +59,8 @@ def create_trainer(
     *,
     enable_live_plot: bool = False,
 ) -> L.Trainer:
+    """Instantiate Lightning trainer with configured callbacks and logger."""
     logger: Any = TensorBoardLogger(save_dir=str(run_dir), name="tb")
-
     callbacks = build_callbacks(config, run_dir, enable_live_plot=enable_live_plot)
     return L.Trainer(
         accelerator=config.trainer.accelerator,
@@ -73,6 +78,7 @@ def create_trainer(
 
 
 def maybe_init_clearml_task(config: ExperimentConfig) -> Task | None:
+    """Initialize ClearML task if enabled in config."""
     if not config.clearml.enabled:
         return None
 
@@ -95,18 +101,29 @@ def fit_experiment(
     *,
     enable_live_plot: bool = False,
 ) -> tuple[L.Trainer, BatteryPredictorModule, BatteryDataModule, Path]:
+    """Run complete training experiment: setup, datamodule, trainer, fit.
+
+    Args:
+        config: Experiment configuration.
+        enable_live_plot: Whether to enable live plotting during training.
+
+    Returns:
+        Tuple of (trainer, module, datamodule, run_dir)
+    """
     if config.seed is None:
         config.seed = resolve_seed(config.seed)
         print(f"[INFO] Generated random 5-digit seed: {config.seed}")
 
     torch.set_float32_matmul_precision("high")
-
     seed_everything_local(config.seed)
     L.seed_everything(config.seed, workers=True)
+
     run_dir = make_run_dir(config)
     config.save_yaml(run_dir / "config.yaml")
+
     datamodule = create_datamodule(config)
     clearml_task = maybe_init_clearml_task(config)
+
     # Print sample counts and percentages for train and val
     train_total = len(datamodule.train_dataset) if datamodule.train_dataset else 0
     val_total = len(datamodule.val_dataset) if datamodule.val_dataset else 0
@@ -124,11 +141,14 @@ def fit_experiment(
     print(
         f"[INFO] Val samples: {val_samples} / {val_total} ({100.0 * val_samples / max(1, val_total):.1f}%)"
     )
+
     module = create_module(config, datamodule)
     trainer = create_trainer(config, run_dir, enable_live_plot=enable_live_plot)
+
     try:
         trainer.fit(module, datamodule=datamodule)
     finally:
         if clearml_task is not None:
             clearml_task.close()
+
     return trainer, module, datamodule, run_dir

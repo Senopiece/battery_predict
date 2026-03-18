@@ -3,13 +3,13 @@ from __future__ import annotations
 import torch
 from torch import nn
 
+from battery_predict.models.embeddings import SinusoidalPositionalEncoding
 from battery_predict.models.layers import (
     FeedForward,
-    SinusoidalPositionalEncoding,
+    MaskedAttentionPooling,
     choose_group_count,
     downsample_mask,
 )
-from battery_predict.models.pooling import MaskedAttentionPooling
 from battery_predict.training.config import EncoderConfig
 
 
