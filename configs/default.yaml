@@ -1,10 +1,11 @@
-experiment_name: latent_capacity_predictor
+experiment_name: battery_forecast
 seed: null
 data:
   dataset_dir: data/set
   split_seed: 7
   val_fraction: 0.2
   cycle_window: 64
+  pred_seq_len: 64
   min_observed_cycles: 2
   train_batch_size: 16
   val_batch_size: 16
@@ -18,7 +19,7 @@ data:
   drop_cycles_without_discharge: true
 encoder:
   d_model: 32
-  latent_dim: 32
+  latent_dim: 64 # ~ d_model * pooling_heads
   conv_channels: [16, 32]
   conv_kernels: [5, 3]
   conv_strides: [1, 2]
@@ -29,20 +30,14 @@ encoder:
   dropout: 0.1
   pooling_heads: 2
   max_signal_positions: 2048
-predictor:
-  d_model: 32
-  layers: 2
+aggregator:
+  layers: 1
   attention_heads: 4
   ff_dim: 64
   dropout: 0.1
-  max_cycle_positions: 1024 # Must be >= cycle_window
-  rotary_base: 10000.0
-decoder:
-  hidden_dim: 32
-loss:
-  direct: 0.5
-  pred_latent: 0.5
-  pred_decode: 1.0
+  pooling_heads: 2
+head:
+  hidden_dim: 64
 optimizer:
   lr: 5.0e-4
   weight_decay: 1.0e-4
@@ -69,7 +64,7 @@ callbacks:
 clearml:
   enabled: true
   project_name: battery-predict
-  task_name: latent_capacity_predictor
+  task_name: battery_forecast
   tags: [battery, lightning, transformer]
   output_uri: null
   offline_mode: false

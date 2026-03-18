@@ -1,5 +1,5 @@
-"""Model building blocks for cycle encoding and latent prediction."""
+"""Model building blocks for cycle encoding and capacity forecasting."""
 
-from battery_predict.models.network import LatentCapacityPredictor
+from battery_predict.models.network import CapacityForecastModel
 
-__all__ = ["LatentCapacityPredictor"]
+__all__ = ["CapacityForecastModel"]

@@ -24,6 +24,7 @@ class DataConfig:
     dt_seconds: float = 1.0
     min_discharge_capacity_ah: float = 1e-6
     drop_cycles_without_discharge: bool = True
+    pred_seq_len: int = 8
 
 
 @dataclass(slots=True)
@@ -43,26 +44,17 @@ class EncoderConfig:
 
 
 @dataclass(slots=True)
-class PredictorConfig:
-    d_model: int = 64
-    layers: int = 2
+class AggregatorConfig:
+    layers: int = 1
     attention_heads: int = 4
-    ff_dim: int = 128
+    ff_dim: int = 64
     dropout: float = 0.1
-    max_cycle_positions: int = 64
-    rotary_base: float = 10000.0
+    pooling_heads: int = 2
 
 
 @dataclass(slots=True)
-class DecoderConfig:
+class HeadConfig:
     hidden_dim: int = 64
-
-
-@dataclass(slots=True)
-class LossConfig:
-    direct: float = 0.5
-    pred_latent: float = 0.5
-    pred_decode: float = 1.0
 
 
 TrainerPrecision: TypeAlias = Literal[
@@ -127,13 +119,12 @@ class ClearMLConfig:
 
 @dataclass(slots=True)
 class ExperimentConfig:
-    experiment_name: str = "latent_capacity_predictor"
+    experiment_name: str = "battery_forecast"
     seed: int | None = None
     data: DataConfig = field(default_factory=DataConfig)
     encoder: EncoderConfig = field(default_factory=EncoderConfig)
-    predictor: PredictorConfig = field(default_factory=PredictorConfig)
-    decoder: DecoderConfig = field(default_factory=DecoderConfig)
-    loss: LossConfig = field(default_factory=LossConfig)
+    aggregator: AggregatorConfig = field(default_factory=AggregatorConfig)
+    head: HeadConfig = field(default_factory=HeadConfig)
     optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
     trainer: TrainerConfig = field(default_factory=TrainerConfig)

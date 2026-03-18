@@ -169,44 +169,35 @@ def run_prediction(
         raise ValueError("start_cycle must be <= end_cycle.")
     if end_cycle > num_cycles:
         raise ValueError("end_cycle exceeds available true cycles.")
-    if right_border <= end_cycle:
+
+    steps_requested = right_border - end_cycle
+    if steps_requested <= 0:
         return []
+
+    pred_seq_len: int = MODEL.model.pred_seq_len
+    n_to_predict = min(steps_requested, pred_seq_len)
 
     left = start_cycle - 1
     right = end_cycle
     context_cycles = dataset.cycles[left:right]
-    if len(context_cycles) < 2:
-        raise ValueError("Selected span must include at least 2 cycles.")
-
+    if len(context_cycles) < 1:
+        raise ValueError("Selected span has no cycles.")
     if len(context_cycles) > context_size:
         context_cycles = context_cycles[-context_size:]
 
     with torch.no_grad():
         signals, signal_mask = _build_encoder_inputs(context_cycles)
-        latents = MODEL.model.encode_cycles(signals, signal_mask)
+        sequence_mask = torch.ones(
+            (1, len(context_cycles)), dtype=torch.bool, device=DEVICE
+        )
+        context_latent = MODEL.model.encode_context(signals, signal_mask, sequence_mask)
+        offsets = torch.arange(n_to_predict, device=DEVICE)
+        pred_caps = MODEL.model.predict_at_offsets(context_latent, offsets).squeeze(0)
 
-        preds: list[dict[str, float]] = []
-        steps_to_predict = right_border - end_cycle
-
-        for step_idx in range(steps_to_predict):
-            if latents.size(1) < 2:
-                raise ValueError("Need at least 2 context cycles for prediction.")
-
-            if latents.size(1) > context_size:
-                latents = latents[:, -context_size:, :]
-
-            sequence_mask = torch.ones(
-                (1, latents.size(1)), dtype=torch.bool, device=DEVICE
-            )
-            _, predicted_next_latent = MODEL.model.predictor(latents, sequence_mask)
-            next_latent = predicted_next_latent[:, -1:, :]
-            pred_ah = MODEL.model.decoder(next_latent).squeeze(0).squeeze(0).item()
-
-            pred_cycle = float(end_cycle + step_idx + 1)
-            preds.append({"cycle": pred_cycle, "capacity_ah": float(pred_ah)})
-            latents = torch.cat([latents, next_latent], dim=1)
-
-    return preds
+    return [
+        {"cycle": float(end_cycle + i + 1), "capacity_ah": float(pred_caps[i])}
+        for i in range(n_to_predict)
+    ]
 
 
 @app.get("/", response_class=HTMLResponse)

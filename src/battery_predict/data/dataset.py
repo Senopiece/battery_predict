@@ -82,17 +82,18 @@ def _load_battery_record(path: Path, config: DataConfig) -> BatteryRecord:
 
 def _build_window_index(
     record: BatteryRecord, config: DataConfig
-) -> list[tuple[Path, int, int]]:
-    if record.num_cycles < config.min_observed_cycles:
+) -> list[tuple[Path, int]]:
+    # Need at least min_observed_cycles context AND 1 target beyond context.
+    if record.num_cycles < config.min_observed_cycles + 1:
         return []
 
     if record.num_cycles <= config.cycle_window:
-        return [(record.path, 0, record.num_cycles)]
+        # Short battery: context = all-but-last cycle, 1+ target cycle(s)
+        return [(record.path, 0)]
 
-    return [
-        (record.path, start, config.cycle_window)
-        for start in range(0, record.num_cycles - config.cycle_window + 1)
-    ]
+    # Slide full-length context window; require at least 1 target after it.
+    max_start = record.num_cycles - config.cycle_window - 1
+    return [(record.path, start) for start in range(0, max_start + 1)]
 
 
 class BatteryWindowDataset(Dataset[dict[str, Any]]):
@@ -117,39 +118,47 @@ class BatteryWindowDataset(Dataset[dict[str, Any]]):
         return self._cache[path]
 
     @property
-    def windows(self) -> tuple[tuple[Path, int, int], ...]:
+    def windows(self) -> tuple[tuple[Path, int], ...]:
         return tuple(self._window_index)
-
-    @property
-    def raw_capacity_values(self) -> np.ndarray:
-        values = []
-        for path in self.files:
-            record = self._get_record(path)
-            values.append(record.capacities_ah[record.capacity_valid])
-        if not values:
-            return np.empty(0, dtype=np.float32)
-        return np.concatenate(values, axis=0)
 
     def __len__(self) -> int:
         return len(self._window_index)
 
     def __getitem__(self, index: int) -> dict[str, Any]:
-        path, start, length = self._window_index[index]
+        path, start = self._window_index[index]
         record = self._get_record(path)
-        end = start + length
 
-        cycles = record.cycles[start:end]
-        capacities = record.capacities_ah[start:end]
-        capacity_valid = record.capacity_valid[start:end]
-        signal_masks = [np.ones(len(cycle), dtype=bool) for cycle in cycles]
+        # Context: up to cycle_window cycles; always leave at least 1 cycle for targets.
+        context_end = min(start + self.config.cycle_window, record.num_cycles - 1)
+        context_end = max(context_end, start + 1)  # at least 1 context cycle
+
+        cycles = record.cycles[start:context_end]
+        capacities = record.capacities_ah[start:context_end]
+        capacity_valid = record.capacity_valid[start:context_end]
+
+        # Targets: next pred_seq_len capacities after context, zero-padded.
+        pred_seq_len = self.config.pred_seq_len
+        target_start = context_end
+        target_end = min(target_start + pred_seq_len, record.num_cycles)
+        n_targets = target_end - target_start
+
+        target_caps = np.zeros(pred_seq_len, dtype=np.float32)
+        target_valid_mask = np.zeros(pred_seq_len, dtype=bool)
+        if n_targets > 0:
+            target_caps[:n_targets] = record.capacities_ah[target_start:target_end]
+            target_valid_mask[:n_targets] = record.capacity_valid[
+                target_start:target_end
+            ]
 
         return {
             "battery_id": path.stem,
             "signals": cycles,
-            "signal_masks": tuple(signal_masks),
+            "signal_masks": tuple(np.ones(len(c), dtype=bool) for c in cycles),
             "capacities_ah": capacities.astype(np.float32, copy=False),
             "capacity_valid": capacity_valid.astype(bool, copy=False),
-            "cycle_indices": np.arange(start, end, dtype=np.int64),
+            "target_capacities_ah": target_caps,
+            "target_capacity_valid": target_valid_mask,
+            "cycle_indices": np.arange(start, context_end, dtype=np.int64),
         }
 
 
@@ -157,6 +166,7 @@ def collate_cycle_windows(batch: list[dict[str, Any]]) -> dict[str, Any]:
     batch_size = len(batch)
     max_cycles = max(len(item["signals"]) for item in batch)
     max_samples = max(signal.shape[0] for item in batch for signal in item["signals"])
+    pred_seq_len = batch[0]["target_capacities_ah"].shape[0]
 
     signals = torch.zeros((batch_size, max_cycles, max_samples, 2), dtype=torch.float32)
     signal_mask = torch.zeros((batch_size, max_cycles, max_samples), dtype=torch.bool)
@@ -164,6 +174,8 @@ def collate_cycle_windows(batch: list[dict[str, Any]]) -> dict[str, Any]:
     capacities_ah = torch.zeros((batch_size, max_cycles), dtype=torch.float32)
     capacity_valid = torch.zeros((batch_size, max_cycles), dtype=torch.bool)
     cycle_indices = torch.full((batch_size, max_cycles), -1, dtype=torch.long)
+    target_capacities_ah = torch.zeros((batch_size, pred_seq_len), dtype=torch.float32)
+    target_capacity_valid = torch.zeros((batch_size, pred_seq_len), dtype=torch.bool)
     battery_ids: list[str] = []
 
     for batch_idx, item in enumerate(batch):
@@ -175,14 +187,15 @@ def collate_cycle_windows(batch: list[dict[str, Any]]) -> dict[str, Any]:
             item["capacity_valid"]
         )
         cycle_indices[batch_idx, :num_cycles] = torch.from_numpy(item["cycle_indices"])
+        target_capacities_ah[batch_idx] = torch.from_numpy(item["target_capacities_ah"])
+        target_capacity_valid[batch_idx] = torch.from_numpy(
+            item["target_capacity_valid"]
+        )
 
         for cycle_idx, signal in enumerate(item["signals"]):
             valid_len = signal.shape[0]
             signals[batch_idx, cycle_idx, :valid_len, :] = torch.from_numpy(signal)
             signal_mask[batch_idx, cycle_idx, :valid_len] = True
-
-    prediction_mask = sequence_mask[:, 1:] & sequence_mask[:, :-1]
-    target_capacity_mask = capacity_valid[:, 1:] & prediction_mask
 
     return {
         "battery_ids": battery_ids,
@@ -191,8 +204,8 @@ def collate_cycle_windows(batch: list[dict[str, Any]]) -> dict[str, Any]:
         "sequence_mask": sequence_mask,
         "capacities_ah": capacities_ah,
         "capacity_valid": capacity_valid,
-        "target_capacity_mask": target_capacity_mask,
-        "prediction_mask": prediction_mask,
+        "target_capacities_ah": target_capacities_ah,
+        "target_capacity_valid": target_capacity_valid,
         "cycle_indices": cycle_indices,
     }
 

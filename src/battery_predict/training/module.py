@@ -5,104 +5,48 @@ import torch
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
 
-from battery_predict.models.network import LatentCapacityPredictor
+from battery_predict.models.network import CapacityForecastModel
 from battery_predict.training.config import ExperimentConfig
-from battery_predict.training.losses import masked_mse, masked_mse_scalar
 
 
 class BatteryPredictorModule(L.LightningModule):
-    def __init__(
-        self,
-        config: ExperimentConfig,
-    ):
+    def __init__(self, config: ExperimentConfig):
         super().__init__()
         self.config = config
-        self.model = LatentCapacityPredictor(
+        self.model = CapacityForecastModel(
             config.encoder,
-            config.predictor,
-            config.decoder,
+            config.aggregator,
+            config.head,
+            config.data.pred_seq_len,
         )
         self.save_hyperparameters(config.to_dict())
 
-    def forward(self, batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    def forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
         return self.model(
             signals=batch["signals"],
             signal_mask=batch["signal_mask"],
             sequence_mask=batch["sequence_mask"],
         )
 
-    def _shared_step(
-        self,
-        batch: dict[str, torch.Tensor],
-        stage: str,
-    ) -> torch.Tensor:
-        outputs = self(batch)
-        prediction_mask = batch["prediction_mask"]
-        pred_decode_mask = batch["target_capacity_mask"]
-        direct_mask = batch["sequence_mask"] & batch["capacity_valid"]
+    def _shared_step(self, batch: dict[str, torch.Tensor], stage: str) -> torch.Tensor:
+        predictions = self(batch)  # (B, pred_seq_len)
+        target = batch["target_capacities_ah"]  # (B, pred_seq_len)
+        valid = batch["target_capacity_valid"]  # (B, pred_seq_len) bool
 
-        # Stop-gradient target prevents encoder/predictor collusion.
-        pred_latent_loss = masked_mse(
-            outputs["predicted_next_latent"],
-            outputs["target_next_latent"].detach(),
-            prediction_mask,
-        )
-
-        direct_target = batch["capacities_ah"]
-        pred_target = batch["capacities_ah"][:, 1:]
-
-        direct_loss = masked_mse_scalar(
-            outputs["direct_capacity"],
-            direct_target,
-            direct_mask,
-        )
-        pred_decode_loss = masked_mse_scalar(
-            outputs["predicted_capacity"],
-            pred_target,
-            pred_decode_mask,
-        )
-
-        total_loss = (
-            self.config.loss.direct * direct_loss
-            + self.config.loss.pred_latent * pred_latent_loss
-            + self.config.loss.pred_decode * pred_decode_loss
-        )
-
-        predicted_capacity_ah = outputs["predicted_capacity"]
-        target_capacity_ah = batch["capacities_ah"][:, 1:]
-        abs_error = (predicted_capacity_ah - target_capacity_ah).abs()
-        masked_abs_error = abs_error[pred_decode_mask]
-        capacity_mae = (
-            masked_abs_error.mean()
-            if masked_abs_error.numel() > 0
-            else torch.zeros((), device=self.device)
-        )
+        errors = (predictions - target).abs()
+        valid_errors = errors[valid]
+        loss = valid_errors.mean() if valid_errors.numel() > 0 else errors.mean()
 
         self.log(
             f"{stage}/loss",
-            total_loss,
+            loss,
             prog_bar=(stage != "train"),
             on_step=False,
             on_epoch=True,
         )
-        self.log(
-            f"{stage}_loss", total_loss, prog_bar=False, on_step=False, on_epoch=True
-        )
-        self.log(f"{stage}/direct_loss", direct_loss, on_step=False, on_epoch=True)
-        self.log(
-            f"{stage}/pred_latent_loss",
-            pred_latent_loss,
-            on_step=False,
-            on_epoch=True,
-        )
-        self.log(
-            f"{stage}/pred_decode_loss",
-            pred_decode_loss,
-            on_step=False,
-            on_epoch=True,
-        )
-        self.log(f"{stage}/capacity_mae_ah", capacity_mae, on_step=False, on_epoch=True)
-        return total_loss
+        self.log(f"{stage}_loss", loss, prog_bar=False, on_step=False, on_epoch=True)
+        self.log(f"{stage}/capacity_mae_ah", loss, on_step=False, on_epoch=True)
+        return loss
 
     def training_step(
         self, batch: dict[str, torch.Tensor], batch_idx: int
