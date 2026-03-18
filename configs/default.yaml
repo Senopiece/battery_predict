@@ -52,7 +52,7 @@ scheduler:
   warmup_epochs: 5
   min_lr: 1.0e-5
 trainer:
-  max_epochs: 60
+  max_epochs: 30
   accelerator: auto
   devices: auto
   precision: 16-mixed

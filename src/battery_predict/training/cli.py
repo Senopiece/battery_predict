@@ -16,15 +16,16 @@ app = typer.Typer(help="Train the battery latent capacity predictor.")
 @app.command()
 def train(
     config: Optional[Path] = typer.Option(
-        None,
+        "configs/default.yaml",
         "--config",
-        help="Path to experiment config YAML. If None, uses built-in defaults.",
+        help="Path to experiment config YAML.",
     ),
 ) -> None:
-    """Train the model with optional config override.
+    """Train the model.
 
     Example:
-        train --config configs/default.yaml
+        train
+        train --config configs/custom.yaml
     """
     loaded_config = load_experiment_config(config)
     trainer, _, _, run_dir = fit_experiment(loaded_config, enable_live_plot=False)
