@@ -15,7 +15,7 @@ Validity must always be inferred from `isfinite(voltage) & isfinite(current)`. P
 
 Filenames are 4-character base62 content hashes of the source data.
 
-To inspect real examples of this processed format, start with [notebooks/dataset/set.ipynb](../notebooks/dataset/set.ipynb).
+To inspect real examples of this processed format, start with [data/set/_inspect.ipynb](../data/set/_inspect.ipynb).
 
 ---
 
@@ -28,10 +28,10 @@ The repository keeps raw source datasets separately from the processed training 
 
 Use the dataset-specific notebooks when you want to inspect source-data quirks before conversion:
 
-- [notebooks/dataset/batterylife.ipynb](../notebooks/dataset/batterylife.ipynb)
-- [notebooks/dataset/sk.ipynb](../notebooks/dataset/sk.ipynb)
+- [data/raw/batterylife/inspect.ipynb](../data/raw/batterylife/inspect.ipynb)
+- [data/raw/sk/inspect.ipynb](../data/raw/sk/inspect.ipynb)
 
-Use [notebooks/dataset/set.ipynb](../notebooks/dataset/set.ipynb) when you want to inspect exactly what the model trains on after conversion.
+Use [data/set/_inspect.ipynb](../data/set/_inspect.ipynb) when you want to inspect exactly what the model trains on after conversion.
 
 ---
 
@@ -64,7 +64,7 @@ Algorithm:
 
 **Nuance:** `split_seed` is separate from the global training `seed`. This is intentional: you can change the model seed (for ensemble experiments) while keeping the same data split, or vice versa.
 
-**Nuance:** the configured validation fraction is guaranteed only at the battery-file level. Since battery files can contain very different numbers of cycles (and therefore windows), the effective train/validation ratio by cycles or windows can slightly differ from the file-level split ratio. Use the `utilize_epoch_windows` analysis cell in [notebooks/dataset/set.ipynb](../notebooks/dataset/set.ipynb) to inspect the actual window counts per split.
+**Nuance:** the configured validation fraction is guaranteed only at the battery-file level. Since battery files can contain very different numbers of cycles (and therefore windows), the effective train/validation ratio by cycles or windows can slightly differ from the file-level split ratio. Use the `utilize_epoch_windows` analysis cell in [data/set/_inspect.ipynb](../data/set/_inspect.ipynb) to inspect the actual window counts per split.
 
 ### Manual Holdout Batteries
 

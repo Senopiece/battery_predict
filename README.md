@@ -9,15 +9,15 @@ If you are new to the repo, use this order:
 1. Read [docs/data.md](docs/data.md) to understand the tensor format, capacity target, split logic, and window sampling.
 2. Read [docs/model.md](docs/model.md) to understand the encoder, latent dynamics model, and decoder.
 3. Read [docs/training.md](docs/training.md) to understand the Lightning training loop, losses, scheduler, and logging.
-4. Open [notebooks/dataset/set.ipynb](notebooks/dataset/set.ipynb) to inspect the processed dataset directly.
-5. If you need source-data context, inspect [notebooks/dataset/batterylife.ipynb](notebooks/dataset/batterylife.ipynb) and [notebooks/dataset/sk.ipynb](notebooks/dataset/sk.ipynb).
+4. Open [data/set/_inspect.ipynb](data/set/_inspect.ipynb) to inspect the processed dataset directly.
+5. If you need source-data context, inspect [data/raw/batterylife/inspect.ipynb](data/raw/batterylife/inspect.ipynb) and [data/raw/sk/inspect.ipynb](data/raw/sk/inspect.ipynb).
 
 ## Repository Scope
 
 - `data/set/*.npy`: processed battery tensors with shape `(cycle, sample, channel)`.
 - `data/raw/batterylife` and `data/raw/sk`: raw dataset staging areas plus dataset-specific conversion scripts.
 - `src/battery_predict`: reusable data, model, loss, and training code.
-- `notebooks/dataset`: dataset inspection notebooks.
+- `data/set/_inspect.ipynb`, `data/raw/batterylife/inspect.ipynb`, and `data/raw/sk/inspect.ipynb`: dataset inspection notebooks.
 
 ## Modeling Goal
 
@@ -96,7 +96,7 @@ Raw datasets are not consumed directly by the training code. They are first conv
 - `data/raw/batterylife/convert.py` converts the BatteryLife sodium-ion raw files from `data/raw/batterylife/set/naion/`.
 - `data/raw/sk/convert.py` is the entry point for converting the SK raw dataset staged under `data/raw/sk/set/`.
 
-If you are validating data quality or debugging preprocessing, start from the raw-dataset notebooks in `notebooks/dataset/` and then compare against the processed-set notebook.
+If you are validating data quality or debugging preprocessing, start from the raw-dataset notebooks in `data/raw/batterylife/inspect.ipynb` and `data/raw/sk/inspect.ipynb`, then compare against the processed-set notebook at `data/set/_inspect.ipynb`.
 
 ## More Detail
 
