@@ -1,9 +1,13 @@
-"""Convert raw BatteryLife sodium-ion data into project .npy tensors.
+"""Convert raw BatteryLife sodium-ion data into project artifacts.
 
-Each output file represents one battery cell and is stored in `data/set` with a
-4-character base62 filename derived from tensor contents. The payload tensor has
-shape `(cycle, sample, channel)` where channel order is:
-0 -> voltage, 1 -> current.
+This script converts two splits:
+- Training split: `data/raw/batterylife/set/naion/*.pkl` -> `data/set/*.npy`
+- Heldout split: `data/raw/batterylife/heldout/naion/*.pkl` ->
+    `data/set/heldout/*.jsonl`
+
+Both outputs use deterministic 4-character base62 names derived from payload
+content. Heldout JSONL files are written as one JSON object per cycle:
+`{"V": [...], "A": [...]}` where arrays are 1 Hz samples.
 
 To address known raw-data issues seen during dataset inspection:
 - Irregular sampling cadence is resampled to dt=1s via linear interpolation.
@@ -14,14 +18,18 @@ To address known raw-data issues seen during dataset inspection:
 from __future__ import annotations
 
 import hashlib
+import json
 import pickle
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Callable
 
 import numpy as np
 
 RAW_DIR = Path(__file__).resolve().parent / "set" / "naion"
 OUT_DIR = Path(__file__).resolve().parents[2] / "set"
+RAW_HELDOUT_DIR = Path(__file__).resolve().parent / "heldout" / "naion"
+OUT_HELDOUT_DIR = OUT_DIR / "heldout"
 
 BASE62_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 BASE = len(BASE62_ALPHABET)
@@ -35,6 +43,14 @@ class ConversionStats:
     files_converted: int = 0
     files_reused: int = 0
     files_skipped_empty: int = 0
+
+
+def load_battery(path: Path) -> dict[str, Any]:
+    suffix = path.suffix.lower()
+    if suffix == ".pkl":
+        with path.open("rb") as handle:
+            return pickle.load(handle)
+    raise ValueError(f"Unsupported source extension: {path.suffix}")
 
 
 def encode_base62_fixed(value: int, width: int = HASH_LEN) -> str:
@@ -66,7 +82,10 @@ def merge_duplicate_timestamps(
     return unique_times, voltage_avg, current_avg
 
 
-def cycle_to_uniform_signal(cycle: dict, dt_s: float = 1.0) -> np.ndarray | None:
+def cycle_to_uniform_trace(
+    cycle: dict,
+    dt_s: float = 1.0,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
     time_values = np.asarray(cycle.get("time_in_s") or [], dtype=np.float64)
     voltage_values = np.asarray(cycle.get("voltage_in_V") or [], dtype=np.float64)
     current_values = np.asarray(cycle.get("current_in_A") or [], dtype=np.float64)
@@ -92,8 +111,10 @@ def cycle_to_uniform_signal(cycle: dict, dt_s: float = 1.0) -> np.ndarray | None
     current_values = current_values[finite_mask]
 
     if len(time_values) == 1:
-        sample = np.array([[voltage_values[0], current_values[0]]], dtype=np.float32)
-        return sample
+        grid = np.array([float(round(float(time_values[0])))], dtype=np.float64)
+        voltage = np.array([voltage_values[0]], dtype=np.float32)
+        current = np.array([current_values[0]], dtype=np.float32)
+        return grid, voltage, current
 
     time_values, voltage_values, current_values = merge_duplicate_timestamps(
         time_values,
@@ -102,8 +123,10 @@ def cycle_to_uniform_signal(cycle: dict, dt_s: float = 1.0) -> np.ndarray | None
     )
 
     if len(time_values) == 1:
-        sample = np.array([[voltage_values[0], current_values[0]]], dtype=np.float32)
-        return sample
+        grid = np.array([float(round(float(time_values[0])))], dtype=np.float64)
+        voltage = np.array([voltage_values[0]], dtype=np.float32)
+        current = np.array([current_values[0]], dtype=np.float32)
+        return grid, voltage, current
 
     start = int(np.ceil(time_values[0]))
     end = int(np.floor(time_values[-1]))
@@ -114,8 +137,16 @@ def cycle_to_uniform_signal(cycle: dict, dt_s: float = 1.0) -> np.ndarray | None
     else:
         grid = np.arange(start, end + dt_s, dt_s, dtype=np.float64)
 
-    voltage_interp = np.interp(grid, time_values, voltage_values)
-    current_interp = np.interp(grid, time_values, current_values)
+    voltage_interp = np.interp(grid, time_values, voltage_values).astype(np.float32)
+    current_interp = np.interp(grid, time_values, current_values).astype(np.float32)
+    return grid, voltage_interp, current_interp
+
+
+def cycle_to_uniform_signal(cycle: dict, dt_s: float = 1.0) -> np.ndarray | None:
+    trace = cycle_to_uniform_trace(cycle, dt_s=dt_s)
+    if trace is None:
+        return None
+    _, voltage_interp, current_interp = trace
     return np.stack([voltage_interp, current_interp], axis=-1).astype(np.float32)
 
 
@@ -150,64 +181,213 @@ def tensors_equal(existing_path: Path, tensor: np.ndarray) -> bool:
     return np.array_equal(existing, tensor, equal_nan=True)
 
 
-def choose_output_path(tensor: np.ndarray, out_dir: Path) -> tuple[Path, bool]:
-    digest = hashlib.sha256(tensor.tobytes(order="C")).digest()
+def jsonl_line(record: dict[str, list[float]]) -> str:
+    return json.dumps(record, separators=(",", ":"), ensure_ascii=False)
+
+
+def records_payload_bytes(records: list[dict[str, list[float]]]) -> bytes:
+    text = "\n".join(jsonl_line(record) for record in records)
+    return text.encode("utf-8")
+
+
+def write_jsonl_records(path: Path, records: list[dict[str, list[float]]]) -> None:
+    with path.open("w", encoding="utf-8", newline="\n") as handle:
+        for record in records:
+            handle.write(jsonl_line(record))
+            handle.write("\n")
+
+
+def jsonl_records_equal(
+    existing_path: Path,
+    records: list[dict[str, list[float]]],
+) -> bool:
+    try:
+        with existing_path.open("r", encoding="utf-8") as handle:
+            existing = [json.loads(line) for line in handle if line.strip()]
+    except Exception:
+        return False
+    return existing == records
+
+
+def choose_output_path(
+    *,
+    payload_bytes: bytes,
+    out_dir: Path,
+    suffix: str,
+    is_same_payload: Callable[[Path], bool],
+) -> tuple[Path, bool]:
+    digest = hashlib.sha256(payload_bytes).digest()
     seed = int.from_bytes(digest, byteorder="big") % HASH_SPACE
 
     for offset in range(HASH_SPACE):
         idx = (seed + offset) % HASH_SPACE
         name = encode_base62_fixed(idx)
-        candidate = out_dir / f"{name}.npy"
+        candidate = out_dir / f"{name}{suffix}"
 
         if not candidate.exists():
             return candidate, False
 
-        if tensors_equal(candidate, tensor):
+        if is_same_payload(candidate):
             return candidate, True
 
     raise RuntimeError("Hash space exhausted: could not place tensor.")
 
 
-def convert(
-    raw_dir: Path = RAW_DIR, out_dir: Path = OUT_DIR, dt_s: float = 1.0
+def battery_to_cycle_records(
+    battery: dict,
+    dt_s: float = 1.0,
+) -> list[dict[str, list[float]]] | None:
+    cycles = battery.get("cycle_data") or []
+
+    records: list[dict[str, list[float]]] = []
+
+    for cycle in cycles:
+        trace = cycle_to_uniform_trace(cycle, dt_s=dt_s)
+        if trace is None:
+            continue
+        _, voltage, current = trace
+        if voltage.size == 0:
+            continue
+        records.append(
+            {
+                "V": voltage.astype(np.float32).tolist(),
+                "A": current.astype(np.float32).tolist(),
+            }
+        )
+
+    if not records:
+        return None
+
+    return records
+
+
+def convert_split(
+    *,
+    split_name: str,
+    raw_dir: Path,
+    out_dir: Path,
+    patterns: tuple[str, ...],
+    mode: str,
+    dt_s: float = 1.0,
 ) -> ConversionStats:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     stats = ConversionStats()
-    for src in sorted(raw_dir.glob("*.pkl")):
-        stats.files_seen += 1
-        with src.open("rb") as f:
-            battery = pickle.load(f)
+    sources: list[Path] = []
+    for pattern in patterns:
+        sources.extend(raw_dir.glob(pattern))
 
-        tensor = battery_to_tensor(battery, dt_s=dt_s)
-        if tensor is None:
-            stats.files_skipped_empty += 1
-            print(f"[skip] {src.name}: no usable cycle samples")
+    seen_paths: set[Path] = set()
+    for src in sorted(sources):
+        if src in seen_paths:
+            continue
+        seen_paths.add(src)
+        stats.files_seen += 1
+        battery = load_battery(src)
+
+        if mode == "npy":
+            tensor = battery_to_tensor(battery, dt_s=dt_s)
+            if tensor is None:
+                stats.files_skipped_empty += 1
+                print(f"[{split_name}][skip] {src.name}: no usable cycle samples")
+                continue
+
+            dst, existed_same = choose_output_path(
+                payload_bytes=tensor.tobytes(order="C"),
+                out_dir=out_dir,
+                suffix=".npy",
+                is_same_payload=lambda candidate: tensors_equal(candidate, tensor),
+            )
+            if existed_same:
+                stats.files_reused += 1
+                print(
+                    f"[{split_name}][keep] {src.name} -> {dst.name} "
+                    "(identical content already present)"
+                )
+                continue
+
+            np.save(dst, tensor, allow_pickle=False)
+            stats.files_converted += 1
+            print(f"[{split_name}][save] {src.name} -> {dst.name} shape={tensor.shape}")
             continue
 
-        dst, existed_same = choose_output_path(tensor, out_dir)
-        if existed_same:
-            stats.files_reused += 1
+        if mode == "jsonl":
+            records = battery_to_cycle_records(battery, dt_s=dt_s)
+            if records is None:
+                stats.files_skipped_empty += 1
+                print(f"[{split_name}][skip] {src.name}: no usable cycle samples")
+                continue
+
+            dst, existed_same = choose_output_path(
+                payload_bytes=records_payload_bytes(records),
+                out_dir=out_dir,
+                suffix=".jsonl",
+                is_same_payload=lambda candidate: jsonl_records_equal(
+                    candidate, records
+                ),
+            )
+            if existed_same:
+                stats.files_reused += 1
+                print(
+                    f"[{split_name}][keep] {src.name} -> {dst.name} "
+                    "(identical content already present)"
+                )
+                continue
+
+            write_jsonl_records(dst, records)
+            stats.files_converted += 1
             print(
-                f"[keep] {src.name} -> {dst.name} (identical content already present)"
+                f"[{split_name}][save] {src.name} -> {dst.name} "
+                f"cycles={len(records)}"
             )
             continue
 
-        np.save(dst, tensor, allow_pickle=False)
-        stats.files_converted += 1
-        print(f"[save] {src.name} -> {dst.name} shape={tensor.shape}")
+        raise ValueError(f"Unsupported conversion mode: {mode}")
 
     return stats
 
 
+def convert(
+    raw_dir: Path = RAW_DIR,
+    out_dir: Path = OUT_DIR,
+    raw_heldout_dir: Path = RAW_HELDOUT_DIR,
+    out_heldout_dir: Path = OUT_HELDOUT_DIR,
+    dt_s: float = 1.0,
+) -> tuple[ConversionStats, ConversionStats]:
+    set_stats = convert_split(
+        split_name="set",
+        raw_dir=raw_dir,
+        out_dir=out_dir,
+        patterns=("*.pkl",),
+        mode="npy",
+        dt_s=dt_s,
+    )
+    heldout_stats = convert_split(
+        split_name="heldout",
+        raw_dir=raw_heldout_dir,
+        out_dir=out_heldout_dir,
+        patterns=("*.pkl",),
+        mode="jsonl",
+        dt_s=dt_s,
+    )
+    return set_stats, heldout_stats
+
+
 def main() -> None:
-    stats = convert()
+    set_stats, heldout_stats = convert()
     print(
-        "\nSummary:"
-        f" seen={stats.files_seen},"
-        f" saved={stats.files_converted},"
-        f" reused={stats.files_reused},"
-        f" skipped_empty={stats.files_skipped_empty}"
+        "\nSummary (set):"
+        f" seen={set_stats.files_seen},"
+        f" saved={set_stats.files_converted},"
+        f" reused={set_stats.files_reused},"
+        f" skipped_empty={set_stats.files_skipped_empty}"
+    )
+    print(
+        "Summary (heldout):"
+        f" seen={heldout_stats.files_seen},"
+        f" saved={heldout_stats.files_converted},"
+        f" reused={heldout_stats.files_reused},"
+        f" skipped_empty={heldout_stats.files_skipped_empty}"
     )
 
 

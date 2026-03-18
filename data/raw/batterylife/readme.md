@@ -14,7 +14,9 @@ This project uses **only the NA-ion (sodium-ion) subset** of BatteryLife.
 1. Go to https://zenodo.org/records/18646655
 2. Download **NA-ion.zip**
 3. Extract the archive
-4. Place the extracted contents (the individual `.pkl` cell files) into `data/raw/batterylife/set/naion/`
+4. Place split files as follows:
+	- Training/validation source files (`.pkl`) in `data/raw/batterylife/set/naion/`
+	- Heldout source files (`.pkl`) in `data/raw/batterylife/heldout/naion/`
 
 After placing the files, run the converter from the repository root:
 
@@ -22,4 +24,9 @@ After placing the files, run the converter from the repository root:
 python data/raw/batterylife/convert.py
 ```
 
-Converted tensors will be written to `data/set/` in the project tensor format.
+Converted tensors will be written to:
+- `data/set/` for the training/validation pool
+- `data/set/heldout/` for manual heldout evaluation (as JSONL cycle records)
+
+Both outputs use the same deterministic 4-character base62 naming scheme derived
+from payload contents.

@@ -15,7 +15,11 @@ data/raw/*/set/*
 !data/raw/*/set/_readme.md
 
 data/set/*
+!data/set/heldout/
+data/set/heldout/*
+!data/set/heldout/_readme.md
 !data/set/_inspect.ipynb
 !data/set/_readme.md
+
 
 outputs/*
