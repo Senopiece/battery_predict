@@ -8,7 +8,7 @@ from battery_predict.training.config import (
     EncoderConfig,
     PredictorConfig,
 )
-from battery_predict.training.losses import gaussian_nll, masked_mse
+from battery_predict.training.losses import masked_mse, masked_mse_scalar
 
 
 def test_model_forward_shapes() -> None:
@@ -39,8 +39,8 @@ def test_model_forward_shapes() -> None:
 
     assert outputs["latents"].shape == (2, 4, 32)
     assert outputs["predicted_next_latent"].shape == (2, 3, 32)
-    assert outputs["capacity_mean"].shape == (2, 3)
-    assert outputs["capacity_logvar"].shape == (2, 3)
+    assert outputs["direct_capacity"].shape == (2, 4)
+    assert outputs["predicted_capacity"].shape == (2, 3)
 
 
 def test_masked_losses_ignore_invalid_positions() -> None:
@@ -50,17 +50,7 @@ def test_masked_losses_ignore_invalid_positions() -> None:
     mse = masked_mse(pred, target, mask)
     assert torch.isclose(mse, torch.tensor(0.0))
 
-    mean = torch.tensor([[0.0, 5.0]])
-    logvar = torch.tensor([[0.0, 0.0]])
-    capacity_target = torch.tensor([[0.0, 100.0]])
-    nll, clamped = gaussian_nll(
-        mean,
-        logvar,
-        capacity_target,
-        mask,
-        logvar_min=-10.0,
-        logvar_max=3.0,
-        eps=1e-6,
-    )
-    assert torch.isfinite(nll)
-    assert torch.equal(clamped, logvar)
+    scalar_pred = torch.tensor([[0.0, 5.0]])
+    scalar_target = torch.tensor([[0.0, 100.0]])
+    scalar_mse = masked_mse_scalar(scalar_pred, scalar_target, mask)
+    assert torch.isclose(scalar_mse, torch.tensor(0.0))

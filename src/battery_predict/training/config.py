@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, TypeAlias
 
 import yaml
 
@@ -60,22 +60,25 @@ class DecoderConfig:
 
 
 @dataclass(slots=True)
-class ScheduledSamplingConfig:
-    enabled: bool = False
-    schedule: str = "linear"
-    start_probability: float = 0.0
-    end_probability: float = 0.0
-    warmup_epochs: int = 0
-    max_unroll_steps: int = 0
-
-
-@dataclass(slots=True)
 class LossConfig:
-    latent_weight: float = 0.5
-    learn_gaussian_likelihood: bool = True
-    logvar_min: float = -10.0
-    logvar_max: float = 3.0
-    capacity_eps: float = 1e-6
+    direct: float = 0.5
+    pred_latent: float = 0.5
+    pred_decode: float = 1.0
+
+
+TrainerPrecision: TypeAlias = Literal[
+    64,
+    32,
+    16,
+    "64-true",
+    "32-true",
+    "16-mixed",
+    "bf16-mixed",
+    "bf16-true",
+    "16-true",
+    "transformer-engine",
+    "transformer-engine-float16",
+]
 
 
 @dataclass(slots=True)
@@ -97,7 +100,7 @@ class TrainerConfig:
     max_epochs: int = 30
     accelerator: str = "auto"
     devices: int | str = "auto"
-    precision: str = "16-mixed"
+    precision: TrainerPrecision = "16-mixed"
     gradient_clip_val: float = 1.0
     log_every_n_steps: int = 10
     deterministic: bool = False
@@ -131,9 +134,6 @@ class ExperimentConfig:
     encoder: EncoderConfig = field(default_factory=EncoderConfig)
     predictor: PredictorConfig = field(default_factory=PredictorConfig)
     decoder: DecoderConfig = field(default_factory=DecoderConfig)
-    scheduled_sampling: ScheduledSamplingConfig = field(
-        default_factory=ScheduledSamplingConfig
-    )
     loss: LossConfig = field(default_factory=LossConfig)
     optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)

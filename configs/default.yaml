@@ -40,19 +40,10 @@ predictor:
   rotary_base: 10000.0
 decoder:
   hidden_dim: 32
-scheduled_sampling:
-  enabled: false
-  schedule: linear
-  start_probability: 0.0
-  end_probability: 0.0
-  warmup_epochs: 0
-  max_unroll_steps: 0
 loss:
-  latent_weight: 1.0
-  learn_gaussian_likelihood: true
-  logvar_min: -10.0
-  logvar_max: 3.0
-  capacity_eps: 1.0e-6
+  direct: 0.5
+  pred_latent: 0.5
+  pred_decode: 1.0
 optimizer:
   lr: 5.0e-4
   weight_decay: 1.0e-4

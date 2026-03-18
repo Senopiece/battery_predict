@@ -42,12 +42,13 @@ class LatentCapacityPredictor(nn.Module):
         latents = self.encode_cycles(signals, signal_mask)
         latents = latents * sequence_mask.unsqueeze(-1).to(latents.dtype)
         hidden, predicted_next_latent = self.predictor(latents, sequence_mask)
-        capacity_mean, capacity_logvar = self.decoder(predicted_next_latent)
+        direct_capacity = self.decoder(latents)
+        predicted_capacity = self.decoder(predicted_next_latent)
         return {
             "latents": latents,
             "predictor_hidden": hidden,
             "predicted_next_latent": predicted_next_latent,
             "target_next_latent": latents[:, 1:],
-            "capacity_mean": capacity_mean,
-            "capacity_logvar": capacity_logvar,
+            "direct_capacity": direct_capacity,
+            "predicted_capacity": predicted_capacity,
         }

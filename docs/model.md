@@ -6,7 +6,7 @@ The model is a three-stage pipeline that operates over a sequence of battery dis
 
 1. **Cycle encoder** — maps each variable-length voltage/current signal to a fixed-size latent vector.
 2. **Latent predictor** — autoregressively models degradation dynamics across the latent sequence and predicts the next-cycle latent residual.
-3. **Capacity decoder** — maps the predicted next-cycle latent to a capacity estimate (mean + log-variance).
+3. **Capacity decoder** — maps latents to a deterministic scalar normalized capacity estimate.
 
 The model operates entirely on a sliding window of consecutive cycles provided by the dataset. It never sees the full battery lifecycle during a single forward pass.
 
@@ -88,15 +88,13 @@ This means the model learns to predict the *change* in latent state from cycle t
 ## Stage 3: Capacity Decoder (`CapacityDecoder`)
 
 A two-layer MLP:
-- `Linear(latent_dim → hidden_dim)` → `GELU` → `Linear(hidden_dim → 2)`
+- `Linear(latent_dim → hidden_dim)` → `GELU` → `Linear(hidden_dim → 1)`
 
-The two output values are:
-- `capacity_mean`: predicted normalized capacity for the next cycle.
-- `capacity_logvar`: log-variance of the (optional) Gaussian predictive distribution.
+The decoder outputs one normalized scalar capacity per latent.
 
-The decoder is applied position-wise to `predicted_next_latent`, so it produces one (mean, logvar) pair per predicted cycle position.
-
-**Nuance — logvar when Gaussian is disabled:** When `loss.learn_gaussian_likelihood = false`, `capacity_logvar` is produced by the model but is not included in the loss. The decoder head still outputs it; it simply does not receive gradient from the capacity objective. This is intentional: it keeps the model structure identical between modes so checkpoints are compatible.
+The decoder is applied in two places:
+- on encoded latents for `L_direct`.
+- on predicted-next latents for `L_pred_decode`.
 
 ---
 

@@ -5,9 +5,9 @@ import torch
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
 
-from battery_predict.models import LatentCapacityPredictor
+from battery_predict.models.network import LatentCapacityPredictor
 from battery_predict.training.config import ExperimentConfig
-from battery_predict.training.losses import gaussian_nll, masked_mse, masked_mse_scalar
+from battery_predict.training.losses import masked_mse, masked_mse_scalar
 
 
 class BatteryPredictorModule(L.LightningModule):
@@ -49,38 +49,40 @@ class BatteryPredictorModule(L.LightningModule):
     ) -> torch.Tensor:
         outputs = self(batch)
         prediction_mask = batch["prediction_mask"]
-        target_capacity_mask = batch["target_capacity_mask"]
+        pred_decode_mask = batch["target_capacity_mask"]
+        direct_mask = batch["sequence_mask"] & batch["capacity_valid"]
 
-        latent_loss = masked_mse(
+        # Stop-gradient target prevents encoder/predictor collusion.
+        pred_latent_loss = masked_mse(
             outputs["predicted_next_latent"],
-            outputs["target_next_latent"],
+            outputs["target_next_latent"].detach(),
             prediction_mask,
         )
 
-        target_capacity_norm = self.normalize_capacity(batch["capacities_ah"][:, 1:])
-        if self.config.loss.learn_gaussian_likelihood:
-            capacity_loss, clamped_logvar = gaussian_nll(
-                outputs["capacity_mean"],
-                outputs["capacity_logvar"],
-                target_capacity_norm,
-                target_capacity_mask,
-                logvar_min=self.config.loss.logvar_min,
-                logvar_max=self.config.loss.logvar_max,
-                eps=self.config.loss.capacity_eps,
-            )
-        else:
-            capacity_loss = masked_mse_scalar(
-                outputs["capacity_mean"],
-                target_capacity_norm,
-                target_capacity_mask,
-            )
+        direct_target_norm = self.normalize_capacity(batch["capacities_ah"])
+        pred_target_norm = self.normalize_capacity(batch["capacities_ah"][:, 1:])
 
-        total_loss = capacity_loss + self.config.loss.latent_weight * latent_loss
+        direct_loss = masked_mse_scalar(
+            outputs["direct_capacity"],
+            direct_target_norm,
+            direct_mask,
+        )
+        pred_decode_loss = masked_mse_scalar(
+            outputs["predicted_capacity"],
+            pred_target_norm,
+            pred_decode_mask,
+        )
 
-        predicted_capacity_ah = self.denormalize_capacity(outputs["capacity_mean"])
+        total_loss = (
+            self.config.loss.direct * direct_loss
+            + self.config.loss.pred_latent * pred_latent_loss
+            + self.config.loss.pred_decode * pred_decode_loss
+        )
+
+        predicted_capacity_ah = self.denormalize_capacity(outputs["predicted_capacity"])
         target_capacity_ah = batch["capacities_ah"][:, 1:]
         abs_error = (predicted_capacity_ah - target_capacity_ah).abs()
-        masked_abs_error = abs_error[target_capacity_mask]
+        masked_abs_error = abs_error[pred_decode_mask]
         capacity_mae = (
             masked_abs_error.mean()
             if masked_abs_error.numel() > 0
@@ -97,20 +99,20 @@ class BatteryPredictorModule(L.LightningModule):
         self.log(
             f"{stage}_loss", total_loss, prog_bar=False, on_step=False, on_epoch=True
         )
-        self.log(f"{stage}/capacity_loss", capacity_loss, on_step=False, on_epoch=True)
-        self.log(f"{stage}/latent_loss", latent_loss, on_step=False, on_epoch=True)
+        self.log(f"{stage}/direct_loss", direct_loss, on_step=False, on_epoch=True)
+        self.log(
+            f"{stage}/pred_latent_loss",
+            pred_latent_loss,
+            on_step=False,
+            on_epoch=True,
+        )
+        self.log(
+            f"{stage}/pred_decode_loss",
+            pred_decode_loss,
+            on_step=False,
+            on_epoch=True,
+        )
         self.log(f"{stage}/capacity_mae_ah", capacity_mae, on_step=False, on_epoch=True)
-        if self.config.loss.learn_gaussian_likelihood:
-            self.log(
-                f"{stage}/logvar_mean",
-                (
-                    clamped_logvar[target_capacity_mask].mean()
-                    if target_capacity_mask.any()
-                    else torch.zeros((), device=self.device)
-                ),
-                on_step=False,
-                on_epoch=True,
-            )
         return total_loss
 
     def training_step(

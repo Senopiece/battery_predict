@@ -182,9 +182,8 @@ class CapacityDecoder(nn.Module):
         self.mlp = nn.Sequential(
             nn.Linear(latent_dim, config.hidden_dim),
             nn.GELU(),
-            nn.Linear(config.hidden_dim, 2),  # Always output 2: mean, logvar
+            nn.Linear(config.hidden_dim, 1),
         )
 
-    def forward(self, latent: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        decoded = self.mlp(latent)
-        return decoded[..., 0], decoded[..., 1]
+    def forward(self, latent: torch.Tensor) -> torch.Tensor:
+        return self.mlp(latent).squeeze(-1)

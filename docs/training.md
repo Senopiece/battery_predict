@@ -39,61 +39,44 @@ Training is implemented with PyTorch Lightning (`BatteryPredictorModule`). The l
 1. **Setup:** datamodule loads all files, builds per-split window indices, fits capacity normalization stats on the training split.
 2. **Epoch:** draw up to `utilize_epoch_windows` windows from train and `utilize_val_epoch_windows` from val.
 3. **Forward pass:** encode all cycles in the window flat across the batch, then run the causal predictor, then decode.
-4. **Loss:** compute latent loss and capacity loss, sum with `latent_weight`.
+4. **Loss:** compute the three-term deterministic objective and backpropagate through the corresponding paths.
 5. **Backward + clip + step:** gradient clipping at `gradient_clip_val`, AdamW optimizer, cosine LR schedule.
 
 After training, the test split is evaluated using the best checkpoint (lowest `val/loss`).
 
 ---
 
-## Loss Functions
+## Three-Term Training Objective
 
-### Latent loss
-
-Masked MSE between predicted next-cycle latent and the target (actual next-cycle latent from the encoder):
+### 1. Loss definition
 
 $$
-L_{latent} = \frac{\sum_{b,t} m_{b,t} \cdot \|\hat{z}_{b,t} - z_{b,t+1}\|^2 / D}{\max\!\left(\sum_{b,t} m_{b,t},\, 1\right)}
+L_{total} = \alpha \cdot L_{direct} + \beta \cdot L_{pred\_latent} + \gamma \cdot L_{pred\_decode}
 $$
 
-where $m$ is `prediction_mask`, $D$ is `latent_dim`, and the mean is over the latent dimension.
+### 2. Term roles
 
-### Capacity loss
+- **`L_pred_decode` (main):** optimizes the actual forecasting task (future capacity prediction from predicted latents).
+- **`L_direct`:** accelerates encoder learning by supervising capacity directly from encoded latents.
+- **`L_pred_latent`:** stabilizes autoregressive rollout by aligning predicted latents with the true latent trajectory.
 
-Two modes controlled by `loss.learn_gaussian_likelihood`:
+### 3. Gradient flow
 
-**Deterministic (default, `false`):** masked MSE on normalized capacity mean:
-
-$$
-L_{cap} = \frac{\sum_{b,t} m^{cap}_{b,t} \cdot (\hat{y}_{b,t} - y_{b,t})^2}{\max\!\left(\sum_{b,t} m^{cap}_{b,t},\, 1\right)}
-$$
-
-**Gaussian NLL (`true`):** masked negative log-likelihood of a Gaussian with predicted mean and log-variance:
+The predicted-latent target is detached:
 
 $$
-L_{cap} = \frac{\sum_{b,t} m^{cap}_{b,t} \cdot \left[\frac{(\hat{y} - y)^2}{e^{\hat{\sigma}^2}} + \hat{\sigma}^2 + \log(2\pi)\right] / 2}{\max\!\left(\sum m^{cap},\, 1\right)}
+L_{pred\_latent} = \text{MSE}(\hat{z}_{t+k},\; \text{stop\_grad}(z_{t+k}))
 $$
 
-where $\hat{\sigma}^2$ is the predicted log-variance clamped to `[logvar_min, logvar_max]`.
-
-### Total loss
-
-$$
-L = L_{cap} + \lambda_{latent} \cdot L_{latent}
-$$
-
-with `loss.latent_weight = λ_latent`.
-
-**Nuance — latent loss is in normalized latent space:** there is no explicit normalization of the latent vectors, so `latent_weight` may need tuning if the latent magnitudes grow or shrink significantly during training. Watch `latent_loss` vs `capacity_loss` in the logs to diagnose imbalance.
-
-**Nuance — `capacity_eps`:** the Gaussian variance is clamped from below with `capacity_eps` before dividing. This prevents numerical instability when the predicted variance is very close to zero. Only relevant when `learn_gaussian_likelihood: true`.
+This avoids encoder/predictor collusion where the encoder could move the target latent to match a weak predictor. With detach, `L_pred_latent` updates predictor dynamics only, while `L_direct` still gives direct encoder supervision.
 
 ---
 
 ## Masks in Loss Computation
 
 - `prediction_mask[b, t]` is `True` if both cycle `t` and cycle `t+1` are valid in sample `b`. Only these positions contribute to latent loss.
-- `target_capacity_mask[b, t]` is `True` if `prediction_mask[b, t]` AND the capacity of cycle `t+1` passed the discharge threshold. Only these positions contribute to capacity loss.
+- `target_capacity_mask[b, t]` is `True` if `prediction_mask[b, t]` AND the capacity of cycle `t+1` passed the discharge threshold. These positions supervise `L_pred_decode`.
+- `sequence_mask & capacity_valid` is used for `L_direct` so direct decode supervision only uses valid observed cycles.
 
 This means a window can contribute latent supervision without contributing capacity supervision (for cycles that passed the `prediction_mask` but not the discharge threshold). This is expected and intentional.
 
@@ -128,7 +111,7 @@ The global seed controls:
 
 ## Teacher Forcing
 
-The predictor currently runs in **teacher forcing mode** only: the ground-truth latent from the encoder is always passed as input to the predictor at every step. There is no rollout or scheduled sampling active in the current version, even though the `scheduled_sampling` config section exists. See `scheduled_sampling.enabled` — it is always `false` and the config is not wired to any training code.
+The predictor runs in **teacher forcing mode**: ground-truth latent history is used to construct each next-latent prediction context during training.
 
 ---
 
@@ -139,10 +122,10 @@ Logged metrics per split (`train`, `val`, `test`):
 | Metric | Description |
 |---|---|
 | `{split}/loss` | total loss |
-| `{split}/capacity_loss` | capacity component of loss |
-| `{split}/latent_loss` | latent MSE component |
+| `{split}/direct_loss` | `L_direct` |
+| `{split}/pred_latent_loss` | `L_pred_latent` |
+| `{split}/pred_decode_loss` | `L_pred_decode` |
 | `{split}/capacity_mae_ah` | mean absolute error in Ah (denormalized) |
-| `{split}/logvar_mean` | mean predicted log-variance *(only when `learn_gaussian_likelihood: true`)* |
 
 **ClearML:** when `clearml.enabled: true`, a ClearML Task is initialized via `Task.init(...)` before training. The resolved config dict is attached to the task as a "config" parameter group. Metrics are reported via TensorBoard logger and automatically picked up by the ClearML agent. Offline mode writes to a local task package instead of the server.
 
