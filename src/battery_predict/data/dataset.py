@@ -282,7 +282,7 @@ class BatteryDataModule(L.LightningDataModule):
             )
         return DataLoader(
             self.val_dataset,
-            batch_size=self.config.eval_batch_size,
+            batch_size=self.config.val_batch_size,
             shuffle=(sampler is None),
             sampler=sampler,
             num_workers=self.config.num_workers,

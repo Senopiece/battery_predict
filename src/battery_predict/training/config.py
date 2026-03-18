@@ -15,7 +15,7 @@ class DataConfig:
     cycle_window: int = 12
     min_observed_cycles: int = 2
     train_batch_size: int = 8
-    eval_batch_size: int = 8
+    val_batch_size: int = 8
     num_workers: int = 0
     pin_memory: bool = True
     persistent_workers: bool = False
