@@ -40,8 +40,6 @@ Available CLI options:
 - `--config`: optional config YAML (if omitted, config is reconstructed from checkpoint hparams)
 - `--host`: bind interface, default `127.0.0.1`
 - `--port`: bind port, default `8000`
-- `--capacity-mean-ah`: optional override for normalization mean
-- `--capacity-std-ah`: optional override for normalization std
 
 ## UI Workflow
 

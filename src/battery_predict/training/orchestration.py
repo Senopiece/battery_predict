@@ -45,12 +45,9 @@ def create_module(
     config: ExperimentConfig,
     datamodule: BatteryDataModule,
 ) -> BatteryPredictorModule:
-    """Instantiate Lightning module with capacity normalization from data."""
-    return BatteryPredictorModule(
-        config,
-        capacity_mean_ah=datamodule.capacity_mean_ah,
-        capacity_std_ah=datamodule.capacity_std_ah,
-    )
+    """Instantiate Lightning module."""
+    _ = datamodule
+    return BatteryPredictorModule(config)
 
 
 def create_trainer(

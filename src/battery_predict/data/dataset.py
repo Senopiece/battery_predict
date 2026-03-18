@@ -205,8 +205,6 @@ class BatteryDataModule(L.LightningDataModule):
         self.split: BatterySplit | None = None
         self.train_dataset: BatteryWindowDataset | None = None
         self.val_dataset: BatteryWindowDataset | None = None
-        self.capacity_mean_ah: float = 0.0
-        self.capacity_std_ah: float = 1.0
 
     def setup(self, stage: str | None = None) -> None:
         files = sorted(self.dataset_dir.glob("*.npy"))
@@ -219,24 +217,6 @@ class BatteryDataModule(L.LightningDataModule):
         if stage in (None, "fit"):
             self.train_dataset = BatteryWindowDataset(self.split.train, self.config)
             self.val_dataset = BatteryWindowDataset(self.split.val, self.config)
-            self.capacity_mean_ah, self.capacity_std_ah = self._fit_capacity_stats(
-                self.train_dataset.raw_capacity_values
-            )
-
-    def _fit_capacity_stats(self, capacities: np.ndarray) -> tuple[float, float]:
-        if capacities.size == 0:
-            return 0.0, 1.0
-        mean = float(capacities.mean())
-        std = float(capacities.std())
-        if std <= 0.0:
-            std = 1.0
-        return mean, std
-
-    def normalize_capacity(self, capacity_ah: torch.Tensor) -> torch.Tensor:
-        return (capacity_ah - self.capacity_mean_ah) / self.capacity_std_ah
-
-    def denormalize_capacity(self, value: torch.Tensor) -> torch.Tensor:
-        return value * self.capacity_std_ah + self.capacity_mean_ah
 
     def train_dataloader(self) -> DataLoader[dict[str, Any]]:
         if self.train_dataset is None:

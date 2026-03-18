@@ -41,7 +41,7 @@ Check `outputs/<experiment_name>/<timestamp>/` for checkpoints and logs.
   - `utils/` — Shared utilities (split, capacity, dataset analysis)
 
 ### 📖 Documentation
-- **`docs/data.md`** — Tensor format, split strategy, masks, normalization
+- **`docs/data.md`** — Tensor format, split strategy, masks, capacity targets
 - **`docs/model.md`** — Architecture: encoder → predictor → decoder  
 - **`docs/training.md`** — Training loop, losses, logging, holdout evaluation
 - **`docs/inference.md`** — Local checkpoint web UI for interactive forecasting

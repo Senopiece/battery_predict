@@ -6,7 +6,7 @@ The model is a three-stage pipeline that operates over a sequence of battery dis
 
 1. **Cycle encoder** — maps each variable-length voltage/current signal to a fixed-size latent vector.
 2. **Latent predictor** — autoregressively models degradation dynamics across the latent sequence and predicts the next-cycle latent residual.
-3. **Capacity decoder** — maps latents to a deterministic scalar normalized capacity estimate.
+3. **Capacity decoder** — maps latents to a deterministic scalar capacity estimate in Ah.
 
 The model operates entirely on a sliding window of consecutive cycles provided by the dataset. It never sees the full battery lifecycle during a single forward pass.
 
@@ -90,7 +90,7 @@ This means the model learns to predict the *change* in latent state from cycle t
 A two-layer MLP:
 - `Linear(latent_dim → hidden_dim)` → `GELU` → `Linear(hidden_dim → 1)`
 
-The decoder outputs one normalized scalar capacity per latent.
+The decoder outputs one scalar capacity value in Ah per latent.
 
 The decoder is applied in two places:
 - on encoded latents for `L_direct`.

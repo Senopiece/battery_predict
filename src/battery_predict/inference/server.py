@@ -53,31 +53,10 @@ def _merge_config(config: ExperimentConfig, values: dict[str, Any]) -> Experimen
     return config
 
 
-def _extract_capacity_stats(
-    checkpoint_payload: dict[str, Any],
-    capacity_mean_ah: float | None,
-    capacity_std_ah: float | None,
-) -> tuple[float, float]:
-    if capacity_mean_ah is not None and capacity_std_ah is not None:
-        return float(capacity_mean_ah), float(capacity_std_ah)
-
-    hparams = checkpoint_payload.get("hyper_parameters", {})
-    mean = hparams.get("capacity_mean_ah", capacity_mean_ah)
-    std = hparams.get("capacity_std_ah", capacity_std_ah)
-
-    if mean is None:
-        mean = 0.0
-    if std is None or float(std) <= 0.0:
-        std = 1.0
-    return float(mean), float(std)
-
-
 def load_model(
     *,
     checkpoint_path: Path,
     config_path: Path | None,
-    capacity_mean_ah: float | None,
-    capacity_std_ah: float | None,
 ) -> BatteryPredictorModule:
     checkpoint_payload = torch.load(checkpoint_path, map_location="cpu")
 
@@ -89,18 +68,10 @@ def load_model(
         if isinstance(hparams, dict):
             _merge_config(config, hparams)
 
-    mean_ah, std_ah = _extract_capacity_stats(
-        checkpoint_payload,
-        capacity_mean_ah,
-        capacity_std_ah,
-    )
-
     module = BatteryPredictorModule.load_from_checkpoint(
         str(checkpoint_path),
         map_location="cpu",
         config=config,
-        capacity_mean_ah=mean_ah,
-        capacity_std_ah=std_ah,
         strict=False,
     )
     module.eval()
@@ -229,8 +200,7 @@ def run_prediction(
             )
             _, predicted_next_latent = MODEL.model.predictor(latents, sequence_mask)
             next_latent = predicted_next_latent[:, -1:, :]
-            pred_norm = MODEL.model.decoder(next_latent).squeeze(0).squeeze(0)
-            pred_ah = MODEL.denormalize_capacity(pred_norm).item()
+            pred_ah = MODEL.model.decoder(next_latent).squeeze(0).squeeze(0).item()
 
             pred_cycle = float(end_cycle + step_idx + 1)
             preds.append({"cycle": pred_cycle, "capacity_ah": float(pred_ah)})
@@ -590,14 +560,6 @@ def main(
     config: Path | None = typer.Option(None, help="Optional config YAML path."),
     host: str = typer.Option("127.0.0.1", help="Host interface to bind."),
     port: int = typer.Option(8000, help="Port to serve the web UI."),
-    capacity_mean_ah: float | None = typer.Option(
-        None,
-        help="Optional capacity mean override if not present in checkpoint hparams.",
-    ),
-    capacity_std_ah: float | None = typer.Option(
-        None,
-        help="Optional capacity std override if not present in checkpoint hparams.",
-    ),
 ) -> None:
     global MODEL
 
@@ -607,8 +569,6 @@ def main(
     MODEL = load_model(
         checkpoint_path=checkpoint,
         config_path=config,
-        capacity_mean_ah=capacity_mean_ah,
-        capacity_std_ah=capacity_std_ah,
     )
 
     print(f"[INFO] Model loaded from {checkpoint}")

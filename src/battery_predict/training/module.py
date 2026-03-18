@@ -14,26 +14,15 @@ class BatteryPredictorModule(L.LightningModule):
     def __init__(
         self,
         config: ExperimentConfig,
-        *,
-        capacity_mean_ah: float,
-        capacity_std_ah: float,
     ):
         super().__init__()
         self.config = config
-        self.capacity_mean_ah = capacity_mean_ah
-        self.capacity_std_ah = capacity_std_ah if capacity_std_ah > 0 else 1.0
         self.model = LatentCapacityPredictor(
             config.encoder,
             config.predictor,
             config.decoder,
         )
         self.save_hyperparameters(config.to_dict())
-
-    def normalize_capacity(self, value_ah: torch.Tensor) -> torch.Tensor:
-        return (value_ah - self.capacity_mean_ah) / self.capacity_std_ah
-
-    def denormalize_capacity(self, value_norm: torch.Tensor) -> torch.Tensor:
-        return value_norm * self.capacity_std_ah + self.capacity_mean_ah
 
     def forward(self, batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         return self.model(
@@ -59,17 +48,17 @@ class BatteryPredictorModule(L.LightningModule):
             prediction_mask,
         )
 
-        direct_target_norm = self.normalize_capacity(batch["capacities_ah"])
-        pred_target_norm = self.normalize_capacity(batch["capacities_ah"][:, 1:])
+        direct_target = batch["capacities_ah"]
+        pred_target = batch["capacities_ah"][:, 1:]
 
         direct_loss = masked_mse_scalar(
             outputs["direct_capacity"],
-            direct_target_norm,
+            direct_target,
             direct_mask,
         )
         pred_decode_loss = masked_mse_scalar(
             outputs["predicted_capacity"],
-            pred_target_norm,
+            pred_target,
             pred_decode_mask,
         )
 
@@ -79,7 +68,7 @@ class BatteryPredictorModule(L.LightningModule):
             + self.config.loss.pred_decode * pred_decode_loss
         )
 
-        predicted_capacity_ah = self.denormalize_capacity(outputs["predicted_capacity"])
+        predicted_capacity_ah = outputs["predicted_capacity"]
         target_capacity_ah = batch["capacities_ah"][:, 1:]
         abs_error = (predicted_capacity_ah - target_capacity_ah).abs()
         masked_abs_error = abs_error[pred_decode_mask]

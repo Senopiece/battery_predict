@@ -33,7 +33,7 @@ Outputs are written under `outputs/<experiment_name>/<timestamp>/`:
 
 Training is implemented with PyTorch Lightning (`BatteryPredictorModule`). The loop is:
 
-1. **Setup:** datamodule loads all files, builds train/validation window indices, fits capacity normalization stats on the training split.
+1. **Setup:** datamodule loads all files and builds train/validation window indices.
 2. **Epoch:** draw up to `utilize_epoch_windows` windows from train and `utilize_val_epoch_windows` from val.
 3. **Forward pass:** encode all cycles in the window flat across the batch, then run the causal predictor, then decode.
 4. **Loss:** compute the three-term deterministic objective and backpropagate through the corresponding paths.
@@ -120,7 +120,7 @@ Logged metrics per split (`train`, `val`):
 | `{split}/direct_loss` | `L_direct` |
 | `{split}/pred_latent_loss` | `L_pred_latent` |
 | `{split}/pred_decode_loss` | `L_pred_decode` |
-| `{split}/capacity_mae_ah` | mean absolute error in Ah (denormalized) |
+| `{split}/capacity_mae_ah` | mean absolute error in Ah |
 
 **ClearML:** when `clearml.enabled: true`, a ClearML Task is initialized via `Task.init(...)` before training. The resolved config dict is attached to the task as a "config" parameter group. Metrics are reported via TensorBoard logger and automatically picked up by the ClearML agent. Offline mode writes to a local task package instead of the server.
 

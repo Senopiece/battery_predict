@@ -125,20 +125,15 @@ Reasoning:
 
 ---
 
-## Capacity Normalization
+## Capacity Targets
 
-Before computing the capacity loss, targets are normalized using training-split statistics:
+Capacity supervision is performed directly in Ah (no normalization step).
 
-$$
-y_{norm} = \frac{Q_{ah} - \mu_{train}}{\sigma_{train}}
-$$
-
-`μ_train` and `σ_train` are computed from the training split only (no validation leakage). If `σ_train = 0`, it is replaced with `1.0`.
-
-The model predicts in normalized space. For evaluation and logging, predictions are denormalized back to Ah:
+Both decoder heads are trained against raw capacity values:
 
 $$
-\hat{Q}_{ah} = \hat{y}_{norm} \cdot \sigma_{train} + \mu_{train}
+L_{direct} = \mathrm{MSE}(\hat{Q}_{t}, Q_{t}), \qquad
+L_{pred\_decode} = \mathrm{MSE}(\hat{Q}_{t+1}, Q_{t+1})
 $$
 
-`capacity_mae_ah` in the logs is always in physical Ah units.
+`capacity_mae_ah` in logs is the direct mean absolute error in Ah.
