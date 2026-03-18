@@ -13,7 +13,7 @@ uv sync --extra dev
 
 ### 2. Train the model
 ```bash
-uv run battery-predict-train --config configs/default.yaml
+uv run train --config configs/default.yaml
 ```
 
 ### 3. Inspect results
@@ -44,6 +44,7 @@ Check `outputs/<experiment_name>/<timestamp>/` for checkpoints and logs.
 - **`docs/data.md`** — Tensor format, split strategy, masks, normalization
 - **`docs/model.md`** — Architecture: encoder → predictor → decoder  
 - **`docs/training.md`** — Training loop, losses, logging, holdout evaluation
+- **`docs/inference.md`** — Local checkpoint web UI for interactive forecasting
 
 ### ⚙️ Configuration
 - **`configs/default.yaml`** — Default training config (model, data, optimizer, scheduler)
@@ -68,7 +69,7 @@ Check `outputs/<experiment_name>/<timestamp>/` for checkpoints and logs.
 
 4. **Run your first training** → Execute:
    ```bash
-   uv run battery-predict-train --config configs/default.yaml
+   uv run train --config configs/default.yaml
    ```
    - Watch metrics in TensorBoard or ClearML
    - Find best checkpoint in `outputs/`
@@ -178,3 +179,4 @@ battery_predict/
 - **ClearML setup**: See [docs/training.md](docs/training.md) section "ClearML"
 - **Data conversion**: See [docs/data.md](docs/data.md) section "Raw Datasets"
 - **Capacity calculation**: See [docs/data.md](docs/data.md) section "Capacity Computation"
+- **Interactive inference UI**: See [docs/inference.md](docs/inference.md)

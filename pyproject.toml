@@ -10,12 +10,14 @@ readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "clearml>=1.16.5",
+    "fastapi>=0.115.0",
     "ipykernel>=7.2.0",
     "ipywidgets>=8.1.8",
     "lightning>=2.5.0",
     "matplotlib>=3.10.8",
     "nbformat>=5.10.4",
     "numpy>=2.2.0",
+    "python-multipart>=0.0.9",
     "plotly>=6.6.0",
     "pyyaml>=6.0.2",
     "scikit-learn>=1.8.0",
@@ -23,6 +25,7 @@ dependencies = [
     "torch>=2.6.0",
     "tqdm>=4.67.1",
     "typer>=0.12.0",
+    "uvicorn>=0.30.0",
 ]
 
 [project.optional-dependencies]
@@ -31,7 +34,8 @@ dev = [
 ]
 
 [project.scripts]
-battery-predict-train = "battery_predict.training.cli:main"
+train = "battery_predict.training.cli:main"
+serve = "battery_predict.inference.server:cli"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/battery_predict"]

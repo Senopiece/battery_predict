@@ -20,7 +20,7 @@ uv sync --extra dev
 ## Running Training
 
 ```bash
-uv run battery-predict-train --config configs/default.yaml
+uv run train --config configs/default.yaml
 ```
 
 Outputs are written under `outputs/<experiment_name>/<timestamp>/`:

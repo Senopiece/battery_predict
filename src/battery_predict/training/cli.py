@@ -24,7 +24,7 @@ def train(
     """Train the model with optional config override.
 
     Example:
-        battery-predict-train --config configs/default.yaml
+        train --config configs/default.yaml
     """
     loaded_config = load_experiment_config(config)
     trainer, _, _, run_dir = fit_experiment(loaded_config, enable_live_plot=False)
