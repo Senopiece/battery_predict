@@ -23,9 +23,6 @@ uv sync --extra dev
 uv run battery-predict-train --config configs/default.yaml
 ```
 
-Optional flags:
-- `--skip-test` — skip the test-set evaluation after fitting.
-
 Outputs are written under `outputs/<experiment_name>/<timestamp>/`:
 - `config.yaml` — the resolved config with the actual seed (if `seed: null` was used).
 - `checkpoints/` — Lightning checkpoints, best-model selected by `val/loss`.
@@ -36,13 +33,11 @@ Outputs are written under `outputs/<experiment_name>/<timestamp>/`:
 
 Training is implemented with PyTorch Lightning (`BatteryPredictorModule`). The loop is:
 
-1. **Setup:** datamodule loads all files, builds per-split window indices, fits capacity normalization stats on the training split.
+1. **Setup:** datamodule loads all files, builds train/validation window indices, fits capacity normalization stats on the training split.
 2. **Epoch:** draw up to `utilize_epoch_windows` windows from train and `utilize_val_epoch_windows` from val.
 3. **Forward pass:** encode all cycles in the window flat across the batch, then run the causal predictor, then decode.
 4. **Loss:** compute the three-term deterministic objective and backpropagate through the corresponding paths.
 5. **Backward + clip + step:** gradient clipping at `gradient_clip_val`, AdamW optimizer, cosine LR schedule.
-
-After training, the test split is evaluated using the best checkpoint (lowest `val/loss`).
 
 ---
 
@@ -105,7 +100,7 @@ The global seed controls:
 
 `seed: null` in config generates a random 5-digit integer seed at runtime, prints it, and saves it to the run's `config.yaml` and ClearML config payload. This allows full reproducibility after the fact even for exploratory runs.
 
-**Nuance:** `data.split_seed` is independent of the global seed and controls only the battery-file split. This separation allows sweeping model hyperparameters or seeds without changing the train/val/test file assignment.
+**Nuance:** `data.split_seed` is independent of the global seed and controls only the battery-file train/validation split. This separation allows sweeping model hyperparameters or seeds without changing the file assignment.
 
 ---
 
@@ -117,7 +112,7 @@ The predictor runs in **teacher forcing mode**: ground-truth latent history is u
 
 ## Logging
 
-Logged metrics per split (`train`, `val`, `test`):
+Logged metrics per split (`train`, `val`):
 
 | Metric | Description |
 |---|---|
@@ -137,12 +132,16 @@ Logged metrics per split (`train`, `val`, `test`):
 
 Lightning `ModelCheckpoint` monitors `val/loss`, saves the top-1 best checkpoint. Checkpoint filename pattern: `best-{epoch:02d}-{val_loss:.4f}.ckpt`.
 
-After fit, the test pass loads the best checkpoint via `ckpt_path="best"`.
-
 ---
 
-## Running Tests
+## Manual Holdout Evaluation
 
-```bash
-uv run pytest
-```
+Training does not run a random test split or an automatic post-fit test pass.
+
+Model selection is based on the validation split only. Final evaluation is reserved for manually held-out BatteryLife sodium-ion files:
+- `NA-ion_4500-30_20250114232539_DefaultGroup_45_8`
+- `NA-ion_270040-1-3-62`
+- `NA-ion_270040-1-8-57`
+- `NA-ion_270040-2-3-12`
+
+Those holdouts should remain outside the processed training set and be evaluated manually with the checkpoint selected by `val/loss`.

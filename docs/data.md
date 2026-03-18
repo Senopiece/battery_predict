@@ -53,18 +53,30 @@ A cycle is considered to have a valid discharge capacity if `Q_discharge >= min_
 
 ## Data Split
 
-Splits are performed at the **battery-file level** to prevent leakage between cycles of the same cell across train/val/test.
+Training uses a **battery-file-level train/validation split** to prevent leakage between cycles of the same cell across optimization and model selection.
 
 Algorithm:
 1. Sort all files by name (deterministic, hash-based names give stable ordering).
 2. Shuffle with a seeded `random.Random(split_seed)`.
-3. Let `N` be the total number of battery files after filtering, then compute `n_test = max(1, round(N * test_fraction))` and `n_val = max(1, round(N * val_fraction))`.
-4. Clamp the sum so at least 1 file remains for training.
-5. Assign: first `n_test` → test, next `n_val` → val, remainder → train.
+3. Let `N` be the total number of battery files after filtering, then compute `n_val = max(1, round(N * val_fraction))`.
+4. Clamp `n_val` so at least 1 file remains for training.
+5. Assign: first `n_val` → validation, remainder → train.
 
 **Nuance:** `split_seed` is separate from the global training `seed`. This is intentional: you can change the model seed (for ensemble experiments) while keeping the same data split, or vice versa.
 
-**Nuance:** the configured split fractions are guaranteed only at the battery-file level. Since battery files can contain very different numbers of cycles (and therefore windows), the effective train/val/test ratio by cycles or windows can slightly differ from the file-level split ratio. Use the `utilize_epoch_windows` analysis cell in [notebooks/dataset/set.ipynb](../notebooks/dataset/set.ipynb) to inspect the actual window counts per split.
+**Nuance:** the configured validation fraction is guaranteed only at the battery-file level. Since battery files can contain very different numbers of cycles (and therefore windows), the effective train/validation ratio by cycles or windows can slightly differ from the file-level split ratio. Use the `utilize_epoch_windows` analysis cell in [notebooks/dataset/set.ipynb](../notebooks/dataset/set.ipynb) to inspect the actual window counts per split.
+
+### Manual Holdout Batteries
+
+This repository does not create a random test split during training. Final evaluation is done against a manually held-out BatteryLife sodium-ion subset outside the train/validation split.
+
+The current manually held-out files are:
+- `NA-ion_4500-30_20250114232539_DefaultGroup_45_8`
+- `NA-ion_270040-1-3-62`
+- `NA-ion_270040-1-8-57`
+- `NA-ion_270040-2-3-12`
+
+Keep these files out of the training dataset when preparing the processed set used for model fitting.
 
 ---
 
@@ -121,7 +133,7 @@ $$
 y_{norm} = \frac{Q_{ah} - \mu_{train}}{\sigma_{train}}
 $$
 
-`μ_train` and `σ_train` are computed from the training split only (no val/test leakage). If `σ_train = 0`, it is replaced with `1.0`.
+`μ_train` and `σ_train` are computed from the training split only (no validation leakage). If `σ_train = 0`, it is replaced with `1.0`.
 
 The model predicts in normalized space. For evaluation and logging, predictions are denormalized back to Ah:
 

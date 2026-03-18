@@ -63,11 +63,11 @@ uv sync --extra dev
 
 - CLI training: `uv run battery-predict-train --config configs/default.yaml`
 - Logging backend: ClearML (enabled by default in `configs/default.yaml`)
+- Training uses a train/validation split only; final testing is done manually on held-out BatteryLife NA-ion files documented in [docs/data.md](docs/data.md).
 
 The code path has been verified with:
 
-- `uv run pytest`
-- a one-epoch real-data smoke fit with validation, test, and best-checkpoint restore
+- a one-epoch real-data smoke fit with validation
 
 ## Project Layout
 
@@ -80,7 +80,6 @@ src/battery_predict/
   models/      encoder, autoregressive transformer, decoder
   training/    config, LightningModule, callbacks, CLI
   utils/       shared helpers
-tests/         targeted unit and smoke tests
 docs/          design and data notes
 ```
 

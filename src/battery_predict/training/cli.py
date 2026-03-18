@@ -11,11 +11,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--config", type=str, default=None, help="Path to a YAML config file."
     )
-    parser.add_argument(
-        "--skip-test",
-        action="store_true",
-        help="Skip the test pass after fitting.",
-    )
     return parser
 
 
@@ -23,11 +18,7 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
     config = load_experiment_config(args.config)
-    trainer, _, _, run_dir = fit_experiment(
-        config,
-        enable_live_plot=False,
-        run_test=not args.skip_test,
-    )
+    trainer, _, _, run_dir = fit_experiment(config, enable_live_plot=False)
     checkpoint_callback = next(
         callback
         for callback in trainer.callbacks

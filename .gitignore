@@ -9,6 +9,8 @@ wheels/
 # Virtual environments
 .venv
 
+data/raw/*/heldout/*
+!data/raw/*/heldout/_readme.md
 data/raw/*/set/*
 !data/raw/*/set/_readme.md
 

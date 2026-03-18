@@ -94,7 +94,6 @@ def fit_experiment(
     config: ExperimentConfig,
     *,
     enable_live_plot: bool = False,
-    run_test: bool = True,
 ) -> tuple[L.Trainer, BatteryPredictorModule, BatteryDataModule, Path]:
     if config.seed is None:
         config.seed = resolve_seed(config.seed)
@@ -129,9 +128,6 @@ def fit_experiment(
     trainer = create_trainer(config, run_dir, enable_live_plot=enable_live_plot)
     try:
         trainer.fit(module, datamodule=datamodule)
-        if run_test:
-            datamodule.setup("test")
-            trainer.test(module, datamodule=datamodule, ckpt_path="best")
     finally:
         if clearml_task is not None:
             clearml_task.close()

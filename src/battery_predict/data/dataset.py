@@ -205,7 +205,6 @@ class BatteryDataModule(L.LightningDataModule):
         self.split: BatterySplit | None = None
         self.train_dataset: BatteryWindowDataset | None = None
         self.val_dataset: BatteryWindowDataset | None = None
-        self.test_dataset: BatteryWindowDataset | None = None
         self.capacity_mean_ah: float = 0.0
         self.capacity_std_ah: float = 1.0
 
@@ -215,7 +214,6 @@ class BatteryDataModule(L.LightningDataModule):
             files,
             seed=self.config.split_seed,
             val_fraction=self.config.val_fraction,
-            test_fraction=self.config.test_fraction,
         )
 
         if stage in (None, "fit"):
@@ -224,9 +222,6 @@ class BatteryDataModule(L.LightningDataModule):
             self.capacity_mean_ah, self.capacity_std_ah = self._fit_capacity_stats(
                 self.train_dataset.raw_capacity_values
             )
-
-        if stage in (None, "test"):
-            self.test_dataset = BatteryWindowDataset(self.split.test, self.config)
 
     def _fit_capacity_stats(self, capacities: np.ndarray) -> tuple[float, float]:
         if capacities.size == 0:
@@ -290,22 +285,6 @@ class BatteryDataModule(L.LightningDataModule):
             batch_size=self.config.eval_batch_size,
             shuffle=(sampler is None),
             sampler=sampler,
-            num_workers=self.config.num_workers,
-            pin_memory=self.config.pin_memory,
-            persistent_workers=self.config.persistent_workers
-            and self.config.num_workers > 0,
-            collate_fn=collate_cycle_windows,
-        )
-
-    def test_dataloader(self) -> DataLoader[dict[str, Any]]:
-        if self.test_dataset is None:
-            raise RuntimeError(
-                "DataModule.setup('test') must be called before test_dataloader()."
-            )
-        return DataLoader(
-            self.test_dataset,
-            batch_size=self.config.eval_batch_size,
-            shuffle=False,
             num_workers=self.config.num_workers,
             pin_memory=self.config.pin_memory,
             persistent_workers=self.config.persistent_workers

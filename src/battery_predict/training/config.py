@@ -12,7 +12,6 @@ class DataConfig:
     dataset_dir: str = "data/set"
     split_seed: int = 7
     val_fraction: float = 0.2
-    test_fraction: float = 0.1
     cycle_window: int = 12
     min_observed_cycles: int = 2
     train_batch_size: int = 8
