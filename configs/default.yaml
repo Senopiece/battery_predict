@@ -28,7 +28,7 @@ encoder:
   attention_heads: 4
   ff_dim: 64
   dropout: 0.1
-  pooling_heads: 2
+  pooling_heads: 4
   max_signal_positions: 2048
 aggregator:
   layers: 1
@@ -47,7 +47,7 @@ scheduler:
   warmup_epochs: 5
   min_lr: 1.0e-5
 trainer:
-  max_epochs: 30
+  max_epochs: 300
   accelerator: auto
   devices: auto
   precision: 16-mixed
@@ -65,6 +65,6 @@ clearml:
   enabled: true
   project_name: battery-predict
   task_name: battery_forecast
-  tags: [battery, lightning, transformer]
+  tags: [battery, lightning, transformer, mlp-decoder]
   output_uri: null
   offline_mode: false
