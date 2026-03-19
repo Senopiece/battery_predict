@@ -27,7 +27,7 @@ encoder:
   attention_heads: 4
   ff_dim: 64
   dropout: 0.1
-  pooling_heads: 2
+  pooling_heads: 4
   max_signal_positions: 2048
 predictor:
   d_model: 32
