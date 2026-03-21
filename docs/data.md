@@ -103,23 +103,26 @@ Within a batch, signal lengths can differ both across batteries and across cycle
 
 1. Pads all signals in the batch to `max_samples`.
 2. Pads cycle sequences to `max_cycles` (the longest window in the batch). For the current processed dataset and default config, this is a pure no-op because all files exceed `cycle_window` and every sampled window has exactly `cycle_window` cycles. The padding path is kept for compatibility with future datasets/configs that may include shorter windows.
-3. Constructs `signal_mask`, `sequence_mask`, `prediction_mask`, and `target_capacity_mask` for model masking and loss masking.
+3. Constructs `signal_mask`, `sequence_mask`, `target_capacities_ah`, and `target_capacity_valid` for model masking and loss computation.
 
 Let:
 - `B` = batch size
 - `C` = `max_cycles` in the batch
 - `T` = `max_samples` in the batch
 
-Mask and tensor meanings:
+Tensor and mask meanings:
 - `signals`: shape `(B, C, T, 2)`. Padded signal tensor (voltage/current channels).
 - `signal_mask`: shape `(B, C, T)`. `True` where a timestep in a cycle is real data, `False` where it is timestep padding. This prevents attention/pooling from treating padded timesteps as observed signal.
 - `sequence_mask`: shape `(B, C)`. `True` where a cycle slot in the window is real, `False` where it is cycle padding. This is the base mask for sequence-level operations.
-- `prediction_mask`: shape `(B, C-1)`, computed as `sequence_mask[:, 1:] & sequence_mask[:, :-1]`. `True` for valid transition pairs `(t -> t+1)` where both cycles exist. Used for next-latent supervision.
-- `target_capacity_mask`: shape `(B, C-1)`, computed as `capacity_valid[:, 1:] & prediction_mask`. `True` only when the transition is valid and the target cycle's discharge capacity is valid. Used for capacity supervision.
+- `capacities_ah`: shape `(B, C)`. Discharge capacity in Ah for each context cycle.
+- `capacity_valid`: shape `(B, C)`. `True` where the context cycle has a valid discharge capacity.
+- `target_capacities_ah`: shape `(B, P)` where `P = pred_seq_len`. Future capacity targets for the cycles immediately following the context window, zero-padded if fewer than `P` target cycles exist.
+- `target_capacity_valid`: shape `(B, P)`. `True` where the corresponding target cycle exists and has a valid discharge capacity.
+- `cycle_indices`: shape `(B, C)`. Original cycle indices in the battery file.
 
 Reasoning:
 - Separate masks let the pipeline handle two different notions of validity: signal-level validity (timesteps), sequence-level validity (cycles), and target-level validity (capacity labels).
-- `prediction_mask` and `target_capacity_mask` can differ: a transition may be valid for latent prediction but excluded from capacity loss if capacity validity fails.
+- Context and target are disjoint: the context window provides input signals, while target capacities come from cycles after the context window.
 
 **Nuance:** Padding is always with zeros for signals (not NaN), and the corresponding mask positions are `False`. This is safe because the model zeros out padded positions after every attention and feed-forward operation.
 
@@ -129,11 +132,12 @@ Reasoning:
 
 Capacity supervision is performed directly in Ah (no normalization step).
 
-Both decoder heads are trained against raw capacity values:
+The forecast head is trained with MAE against the raw target capacity values:
 
 $$
-L_{direct} = \mathrm{MSE}(\hat{Q}_{t}, Q_{t}), \qquad
-L_{pred\_decode} = \mathrm{MSE}(\hat{Q}_{t+1}, Q_{t+1})
+L = \frac{1}{|\mathcal{V}|} \sum_{(b,t) \in \mathcal{V}} \lvert \hat{Q}_{b,t} - Q_{b,t} \rvert
 $$
 
-`capacity_mae_ah` in logs is the direct mean absolute error in Ah.
+where $\mathcal{V}$ is the set of positions where `target_capacity_valid` is `True`.
+
+`capacity_mae_ah` in logs is the mean absolute error in Ah (equal to the loss).

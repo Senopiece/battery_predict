@@ -117,7 +117,6 @@ class CycleEncoder(nn.Module):
         self.conv = ConvFeatureExtractor(config)
         self.position = SinusoidalPositionalEncoding(
             config.d_model,
-            max_positions=config.max_signal_positions,
         )
         self.blocks = nn.ModuleList(
             [

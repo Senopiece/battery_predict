@@ -40,21 +40,23 @@ class EncoderConfig:
     ff_dim: int = 128
     dropout: float = 0.1
     pooling_heads: int = 2
-    max_signal_positions: int = 2048
 
 
 @dataclass(slots=True)
 class AggregatorConfig:
+    out_dim: int = 96
     layers: int = 1
     attention_heads: int = 4
     ff_dim: int = 64
     dropout: float = 0.1
     pooling_heads: int = 2
+    rotary_base: float = 10000.0
 
 
 @dataclass(slots=True)
 class HeadConfig:
     hidden_dim: int = 64
+    offset_embedding_dim: int = 96
 
 
 TrainerPrecision: TypeAlias = Literal[

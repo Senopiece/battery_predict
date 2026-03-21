@@ -36,14 +36,14 @@ Check `outputs/<experiment_name>/<timestamp>/` for checkpoints and logs.
 ### 💾 Source Code
 - **`src/battery_predict/`**
   - `data/` — Dataset loading and Lightning DataModule  
-  - `models/` — Encoder, latent predictor, capacity decoder
+  - `models/` — Encoder, aggregator, forecast head
   - `training/` — Config, LightningModule, training loop, CLI  
-  - `utils/` — Shared utilities (split, capacity, dataset analysis)
+  - `utils/` — Shared utilities (split, capacity)
 
 ### 📖 Documentation
 - **`docs/data.md`** — Tensor format, split strategy, masks, capacity targets
-- **`docs/model.md`** — Architecture: encoder → predictor → decoder  
-- **`docs/training.md`** — Training loop, losses, logging, holdout evaluation
+- **`docs/model.md`** — Architecture: encoder → aggregator → forecast head  
+- **`docs/training.md`** — Training loop, loss, logging, holdout evaluation
 - **`docs/inference.md`** — Local checkpoint web UI for interactive forecasting
 
 ### ⚙️ Configuration
@@ -60,11 +60,11 @@ Check `outputs/<experiment_name>/<timestamp>/` for checkpoints and logs.
    - Then inspect with [data/set/_inspect.ipynb](data/set/_inspect.ipynb)
 
 2. **Understand the model** → Read [docs/model.md](docs/model.md)
-   - Three-stage pipeline: encoder → predictor → decoder
+   - Three-stage pipeline: encoder → aggregator → forecast head
    - Architecture choices and design rationale
 
 3. **Understand training** → Read [docs/training.md](docs/training.md)
-   - Three-term loss (L_direct + L_pred_latent + L_pred_decode)
+   - MAE loss and capacity supervision
    - Logging and evaluation strategy
 
 4. **Run your first training** → Execute:
@@ -82,12 +82,11 @@ Check `outputs/<experiment_name>/<timestamp>/` for checkpoints and logs.
 
 ## Key Concepts
 
-### Three-Term Loss
-$$L_{total} = \alpha \cdot L_{direct} + \beta \cdot L_{pred\_latent} + \gamma \cdot L_{pred\_decode}$$
+### MAE Loss
+$$L = \frac{1}{|\mathcal{V}|} \sum_{(b,t) \in \mathcal{V}} \lvert \hat{Q}_{b,t} - Q_{b,t} \rvert$$
 
-- **L_direct:** Direct capacity supervision from encoded latents
-- **L_pred_latent:** Latent trajectory alignment (with gradient detach)  
-- **L_pred_decode:** Main forecasting task (predicted latent → future capacity)
+- Mean absolute error over valid target capacity positions
+- Targets are raw discharge capacity in Ah
 
 ### Train/Validation Split
 - Random file-level split (no cycle leakage)
@@ -160,9 +159,9 @@ battery_predict/
 │       └── _inspect.ipynb
 ├── src/battery_predict/
 │   ├── data/             dataset module
-│   ├── models/           encoder, predictor, decoder
+│   ├── models/           encoder, aggregator, forecast head
 │   ├── training/         config, Lightning module, CLI
-│   └── utils/            split, capacity, dataset analysis
+│   └── utils/            split, capacity
 ├── configs/
 │   └── default.yaml      experiment config
 ├── docs/

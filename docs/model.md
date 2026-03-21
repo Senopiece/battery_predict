@@ -2,11 +2,11 @@
 
 ## Overview
 
-The model is a three-stage pipeline that operates over a sequence of battery discharge cycles:
+The model is a three-stage pipeline that operates over a sliding window of consecutive battery discharge cycles:
 
 1. **Cycle encoder** — maps each variable-length voltage/current signal to a fixed-size latent vector.
-2. **Latent predictor** — autoregressively models degradation dynamics across the latent sequence and predicts the next-cycle latent residual.
-3. **Capacity decoder** — maps latents to a deterministic scalar capacity estimate in Ah.
+2. **Aggregator** — cross-cycle transformer attention followed by attention pooling, collapsing the sequence of per-cycle latents into a single context vector.
+3. **Forecast head** — takes the context vector and sinusoidal offset embeddings to predict future discharge capacities at arbitrary cycle offsets.
 
 The model operates entirely on a sliding window of consecutive cycles provided by the dataset. It never sees the full battery lifecycle during a single forward pass.
 
@@ -32,7 +32,7 @@ The convolution stack progressively extracts local features and can downsample t
 
 **2. Sinusoidal positional encoding**
 
-Applied to the downsampled hidden states after the conv stack. Uses the standard sinusoidal schedule with a configurable `max_signal_positions` cap. This cap must be at least as large as the longest downsampled signal length in the dataset (use the notebook analysis cell to estimate this).
+Applied to the downsampled hidden states after the conv stack. Uses the standard sinusoidal schedule. The positional encoding cache is built on the fly and extended as needed — there is no fixed maximum.
 
 **3. Transformer blocks (`SignalTransformerBlock`)**
 
@@ -56,66 +56,59 @@ Each input cycle produces one latent vector of shape `(latent_dim,)`. For a batc
 
 ---
 
-## Stage 2: Latent Predictor (`LatentPredictor`)
+## Stage 2: Aggregator
 
-**Goal:** given the sequence of encoded latents `(W, latent_dim)`, predict the next-cycle latent for each position autoregressively.
+**Goal:** collapse the sequence of per-cycle latents `(B, W, latent_dim)` into a single context vector `(B, out_dim)`.
 
-### Design
+The aggregator lives inside `CapacityForecastModel` and consists of:
 
-A causal transformer (pre-norm, like the signal encoder) with:
-- `CausalSelfAttention` using Rotary Positional Embeddings (RoPE) and an upper-triangular causal mask.
-- Key padding mask applied to suppress padding positions (shorter windows in a batch pad to the max window length).
-- `FeedForward` block with `GELU` activations.
+### 1. Cross-cycle transformer with RoPE
 
-### Rotary positional embeddings (RoPE)
+RoPE is applied first to the cycle-latent sequence with `RotaryPositionalEncoding(latent_dim, base=rotary_base)`, then one or more standard `SignalTransformerBlock` layers operate over the `W` cycle positions with non-causal self-attention.
 
-RoPE is applied per-head to queries and keys. This avoids adding absolute positions to the latent values and gives the predictor relative position awareness which generalises to unseen window offsets. `rotary_base = 10000.0` controls the frequency spread; increasing it extends positional resolution at the cost of shorter effective range.
+In other words, positional information is injected directly into `(B, W, latent_dim)` before attention, and the transformer stack remains the same pre-norm block used in the encoder (`nn.MultiheadAttention` + FFN + residuals).
 
-### Residual prediction
+The `rotary_base` parameter (default `10000.0`) controls the RoPE frequency spread. RoPE caches cosine/sine tables and grows them on demand when sequence length `W` exceeds the current cache.
 
-The predictor does **not** directly predict the next latent. It predicts a **residual**:
+### 2. Attention pooling
 
-```
-predicted_next_latent[t] = latent[t] + residual_head(hidden[t])
-```
+`MaskedAttentionPooling(latent_dim, pooling_heads)` learns `pooling_heads` separate attention-weighted averages over the `W` positions, producing a vector of size `latent_dim * pooling_heads`.
 
-This means the model learns to predict the *change* in latent state from cycle to cycle, not the absolute next state. This is a strong inductive bias for battery degradation: cycles change slowly, so the residual is small and well-conditioned early in training.
+### 3. Projection
 
-**Nuance — time offset:** The predictor hidden states at position `t` are used to predict the latent at `t+1`. This means the output is `(W-1, latent_dim)` aligning with `latents[:, 1:]` on the target side. The last latent position never produces a prediction (there is nothing to supervise it against in a window).
+`Linear(latent_dim * pooling_heads → out_dim) + LayerNorm` projects the concatenated pooled output to `out_dim`. This is typically larger than the encoder's `latent_dim` to give the forecast head a richer representation to condition on.
+
+### Why a separate aggregator output dim?
+
+The aggregator output feeds the forecast head which must predict capacity at arbitrary future offsets. A larger output dim gives the context vector more dimensions to work with, which benefits generalization — particularly when predicting far into the future beyond the training `pred_seq_len`.
 
 ---
 
-## Stage 3: Capacity Decoder (`CapacityDecoder`)
+## Stage 3: Forecast Head
 
-A two-layer MLP:
-- `Linear(latent_dim → hidden_dim)` → `GELU` → `Linear(hidden_dim → 1)`
+**Goal:** predict scalar capacity at arbitrary future cycle offsets given the context vector.
 
-The decoder outputs one scalar capacity value in Ah per latent.
+### Design
 
-The decoder is applied in two places:
-- on encoded latents for `L_direct`.
-- on predicted-next latents for `L_pred_decode`.
+1. **Offset embedding** — `SinusoidalEmbedding(offset_embedding_dim)` maps integer cycle offsets `[0, 1, ..., n-1]` to dense vectors on the fly. The `offset_embedding_dim` is configured independently from the aggregator's `out_dim`.
+
+2. **Concatenation** — the context vector is broadcast across the `n` offsets and concatenated with offset embeddings: `(B, n, out_dim + offset_embedding_dim)`.
+
+3. **MLP** — `Linear(out_dim + offset_embedding_dim → hidden_dim) → GELU → Linear(hidden_dim → 1)` produces one scalar capacity prediction per offset.
+
+### Arbitrary horizon
+
+The head can predict at any number of offsets at inference time, not limited to the training `pred_seq_len`. The sinusoidal offset embedding generalizes to unseen positions.
 
 ---
 
 ## Masks
 
-Three masks are maintained throughout the pipeline:
+Two masks are maintained throughout the pipeline:
 
 | Mask | Shape | Meaning |
 |---|---|---|
 | `signal_mask` | `(B, W, T)` | valid sample positions within each cycle |
-| `sequence_mask` | `(B, W)` | valid cycle positions within each window (some windows may be shorter due to batching) |
-| `prediction_mask` | `(B, W-1)` | positions where a next-cycle prediction exists (both current and next cycle are valid) |
-| `target_capacity_mask` | `(B, W-1)` | positions where capacity supervision is available (prediction mask AND discharge capacity was valid) |
+| `sequence_mask` | `(B, W)` | valid cycle positions within each window |
 
-All losses are computed only over positions where the respective mask is true.
-
----
-
-## Why latent residual prediction?
-
-Predicting the residual instead of the full next latent has several advantages:
-1. **Gradient stability early in training:** residuals start near zero, so the predictor loss starts low and gradients are small and consistent.
-2. **Natural inductive bias:** battery degradation is approximately monotonic and slow; the latent trajectory has low curvature, so residuals are small.
-3. **Easier to learn than absolute prediction:** the model only needs to learn the direction and magnitude of change, not reconstruct the full representation from scratch.
+All masking is done via zeroing after attention/FFN operations and `key_padding_mask` in attention layers.

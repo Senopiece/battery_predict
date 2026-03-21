@@ -29,15 +29,17 @@ encoder:
   ff_dim: 64
   dropout: 0.1
   pooling_heads: 4
-  max_signal_positions: 2048
 aggregator:
+  out_dim: 96
   layers: 1
   attention_heads: 4
   ff_dim: 64
   dropout: 0.1
   pooling_heads: 2
+  rotary_base: 10000.0
 head:
-  hidden_dim: 64
+  hidden_dim: 128
+  offset_embedding_dim: 16
 optimizer:
   lr: 5.0e-4
   weight_decay: 1.0e-4

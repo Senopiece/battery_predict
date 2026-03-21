@@ -177,8 +177,7 @@ def run_prediction(
     if steps_requested <= 0:
         return []
 
-    pred_seq_len: int = MODEL.model.pred_seq_len
-    n_to_predict = min(steps_requested, pred_seq_len)
+    n_to_predict = steps_requested
 
     left = start_cycle - 1
     right = end_cycle
@@ -194,8 +193,15 @@ def run_prediction(
             (1, len(context_cycles)), dtype=torch.bool, device=DEVICE
         )
         context_latent = MODEL.model.encode_context(signals, signal_mask, sequence_mask)
+        last_cycle_capacity_ah = MODEL.model.compute_last_cycle_discharge_capacity(
+            signals, signal_mask, sequence_mask
+        )
         offsets = torch.arange(n_to_predict, device=DEVICE)
-        pred_caps = MODEL.model.predict_at_offsets(context_latent, offsets).squeeze(0)
+        pred_caps = MODEL.model.predict_at_offsets(
+            context_latent,
+            offsets,
+            last_cycle_capacity_ah,
+        ).squeeze(0)
 
     return [
         {"cycle": float(end_cycle + i + 1), "capacity_ah": float(pred_caps[i])}
