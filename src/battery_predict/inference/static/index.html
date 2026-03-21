@@ -9,8 +9,8 @@
     /* Plotly modebar overrides */
     .modebar { background: transparent !important; }
     .modebar-group {
-      background: #252526 !important;
-      border: 1px solid #2f2f2f !important;
+      background: var(--modebar-bg) !important;
+      border: 1px solid var(--modebar-border) !important;
       border-radius: 4px !important;
       padding: 1px !important;
     }
@@ -23,10 +23,10 @@
     /* Custom tooltip */
     .modebar-tooltip {
       position: fixed;
-      background: #1e1e1e;
-      border: 1px solid #454545;
+      background: var(--tooltip-bg);
+      border: 1px solid var(--tooltip-border);
       border-radius: 3px;
-      color: #cccccc;
+      color: var(--tooltip-text);
       font-family: "Segoe UI", sans-serif;
       font-size: 11px;
       padding: 2px 6px;
@@ -60,7 +60,13 @@
         </label>
         <span class="file-name" id="fileName">No file selected</span>
       </div>
-      <button id="runBtn" class="btn btn-primary">Run forecast</button>
+      <div class="toolbar-right">
+        <button id="runBtn" class="btn btn-primary">Run forecast</button>
+        <button id="themeToggle" class="btn-icon" title="Toggle light/dark theme">
+          <svg id="iconSun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          <svg id="iconMoon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+      </div>
     </div>
 
     <div id="plot"></div>
@@ -196,11 +202,17 @@
       return shapes;
     }
 
-    const HOVER_LABEL = {
-      bgcolor: '#252526',
-      bordercolor: '#2f2f2f',
-      font: {color: '#d4d4d4', family: 'Segoe UI, sans-serif', size: 12},
-    };
+    function cssVar(name) {
+      return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    }
+
+    function hoverLabel() {
+      return {
+        bgcolor: cssVar('--hover-bg'),
+        bordercolor: cssVar('--hover-border'),
+        font: {color: cssVar('--hover-text'), family: 'Segoe UI, sans-serif', size: 12},
+      };
+    }
 
     function buildTrueTrace() {
       return {
@@ -210,7 +222,7 @@
         mode: 'lines',
         name: 'Observed',
         line: {color: '#4fc1ff', width: 2.4},
-        hoverlabel: HOVER_LABEL,
+        hoverlabel: hoverLabel(),
       };
     }
 
@@ -222,7 +234,7 @@
         mode: 'lines',
         name: 'Forecast',
         line: {color: '#ce9178', width: 2.4, dash: 'dash'},
-        hoverlabel: HOVER_LABEL,
+        hoverlabel: hoverLabel(),
       };
     }
 
@@ -251,17 +263,17 @@
 
       const layout = {
         paper_bgcolor: 'rgba(0,0,0,0)',
-        plot_bgcolor: '#1e1e1e',
-        font: {color: '#cccccc', family: 'Segoe UI, sans-serif'},
+        plot_bgcolor: cssVar('--plot-bg'),
+        font: {color: cssVar('--plot-font'), family: 'Segoe UI, sans-serif'},
         margin: {t: 0, r: 10, b: 47, l: 60},
         dragmode: 'pan',
         hovermode: 'x unified',
-        hoverlabel: HOVER_LABEL,
+        hoverlabel: hoverLabel(),
         shapes: chartShapes(),
         modebar: {
           bgcolor: 'rgba(0,0,0,0)',
-          color: '#8d8d8d',
-          activecolor: '#1177bb',
+          color: cssVar('--muted'),
+          activecolor: cssVar('--accent-strong'),
         },
         showlegend: true,
         legend: {
@@ -278,15 +290,15 @@
           zeroline: false,
           showspikes: true,
           spikecolor: '#4fc1ff',
-          gridcolor: '#252525',
-          linecolor: '#2f2f2f',
+          gridcolor: cssVar('--plot-grid'),
+          linecolor: cssVar('--plot-line'),
           autorange: true,
         },
         yaxis: {
           title: {text: 'Discharge capacity (Ah)', standoff: 10},
           zeroline: false,
-          gridcolor: '#252525',
-          linecolor: '#2f2f2f',
+          gridcolor: cssVar('--plot-grid'),
+          linecolor: cssVar('--plot-line'),
         },
       };
 
@@ -628,10 +640,10 @@
 
     function styleNote(el) {
       Object.assign(el.style, {
-        backgroundColor: '#1e1e1e',
-        border: '1px solid #454545',
+        backgroundColor: cssVar('--tooltip-bg'),
+        border: '1px solid ' + cssVar('--tooltip-border'),
         borderRadius: '3px',
-        color: '#cccccc',
+        color: cssVar('--tooltip-text'),
         fontFamily: '"Segoe UI", sans-serif',
         fontSize: '12px',
         padding: '6px 12px',
@@ -641,6 +653,31 @@
 
     // Style any already-existing notifier
     document.querySelectorAll('.plotly-notifier').forEach(observeNotifier);
+
+    // --- Theme toggle ---
+    const themeToggle = document.getElementById('themeToggle');
+    const iconSun = document.getElementById('iconSun');
+    const iconMoon = document.getElementById('iconMoon');
+
+    function applyTheme(theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      localStorage.setItem('theme', theme);
+      // Force style recalc so cssVar() reads updated values
+      getComputedStyle(document.documentElement).getPropertyValue('--bg');
+      iconSun.style.display = theme === 'light' ? 'inline' : 'none';
+      iconMoon.style.display = theme === 'dark' ? 'inline' : 'none';
+      // Re-style any existing notifier notes
+      document.querySelectorAll('.notifier-note').forEach(styleNote);
+    }
+
+    themeToggle.addEventListener('click', () => {
+      const current = document.documentElement.getAttribute('data-theme') || 'dark';
+      const next = current === 'dark' ? 'light' : 'dark';
+      applyTheme(next);
+      renderPlot();
+    });
+
+    applyTheme(localStorage.getItem('theme') || 'dark');
 
     updateRunBtnState();
     renderPlot([]);
