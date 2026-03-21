@@ -1,0 +1,649 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Battery Forecast Explorer</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <style>
+    /* Plotly modebar overrides */
+    .modebar { background: transparent !important; }
+    .modebar-group {
+      background: #252526 !important;
+      border: 1px solid #2f2f2f !important;
+      border-radius: 4px !important;
+      padding: 1px !important;
+    }
+    /* Kill Plotly's built-in ::before tooltip completely */
+    .modebar-btn[data-title]:before,
+    .modebar-btn:before {
+      display: none !important;
+      content: none !important;
+    }
+    /* Custom tooltip */
+    .modebar-tooltip {
+      position: fixed;
+      background: #1e1e1e;
+      border: 1px solid #454545;
+      border-radius: 3px;
+      color: #cccccc;
+      font-family: "Segoe UI", sans-serif;
+      font-size: 11px;
+      padding: 2px 6px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.36);
+      pointer-events: none;
+      z-index: 10000;
+      white-space: nowrap;
+    }
+    /* Shift-toggle cursor overrides */
+    #plot.shift-zoom .nsewdrag { cursor: crosshair !important; }
+    #plot.shift-pan .nsewdrag { cursor: move !important; }
+  </style>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+</head>
+<body>
+  <div class="overlay" id="overlay">
+    <div class="loader-card">
+      <div class="loader-eyebrow" id="loaderEyebrow">Upload</div>
+      <div class="loader-title" id="loaderTitle">Uploading file</div>
+      <div class="loader-copy" id="loaderCopy">Processing the selected JSONL file.</div>
+      <div class="bar"><div></div></div>
+    </div>
+  </div>
+
+  <div class="page-container">
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <label class="file-picker">
+          <input id="jsonlFile" type="file" accept=".jsonl" />
+          <span class="btn btn-secondary">Choose file</span>
+        </label>
+        <span class="file-name" id="fileName">No file selected</span>
+      </div>
+      <button id="runBtn" class="btn btn-primary">Run forecast</button>
+    </div>
+
+    <div id="plot"></div>
+  </div>
+
+  <script>
+    let datasetId = null;
+    let trueCaps = [];
+    let currentPredictions = [];
+    let suppressRelayout = false;
+
+    const DEFAULT_CONTEXT_SIZE = 128;
+    const MAX_EXTRA_HORIZON = 1024;
+
+    let hasChanges = false;
+
+    const state = {
+      startCycle: 1,
+      endCycle: 16,
+      rightBorder: 32,
+      xMin: 1,
+      xMax: 64,
+    };
+
+    const prevState = {
+      startCycle: 1,
+      endCycle: 16,
+      rightBorder: 32,
+    };
+
+    const overlay = document.getElementById('overlay');
+    const fileNameEl = document.getElementById('fileName');
+    const fileInput = document.getElementById('jsonlFile');
+    const runBtn = document.getElementById('runBtn');
+    const loaderEyebrow = document.getElementById('loaderEyebrow');
+    const loaderTitle = document.getElementById('loaderTitle');
+    const loaderCopy = document.getElementById('loaderCopy');
+
+    function setBusy(isBusy, kind = 'forecast') {
+      if (kind === 'upload') {
+        loaderEyebrow.textContent = 'Upload';
+        loaderTitle.textContent = 'Uploading file';
+        loaderCopy.textContent = 'Processing the selected JSONL file.';
+      } else {
+        loaderEyebrow.textContent = 'Generating forecast';
+        loaderTitle.textContent = 'Running model';
+        loaderCopy.textContent = 'Computing predictions for the selected window.';
+      }
+      overlay.classList.toggle('show', isBusy);
+    }
+
+    function updateRunBtnState() {
+      const stateChanged =
+        state.startCycle !== prevState.startCycle ||
+        state.endCycle !== prevState.endCycle ||
+        state.rightBorder !== prevState.rightBorder;
+      runBtn.disabled = !stateChanged;
+    }
+
+    function computePlotMax() {
+      const observedMax = trueCaps.length > 0 ? trueCaps.length : 64;
+      return observedMax + MAX_EXTRA_HORIZON;
+    }
+
+    function clampWindows() {
+      const observedUpper = trueCaps.length > 0 ? trueCaps.length : Number.MAX_SAFE_INTEGER;
+      state.startCycle = Math.max(1, Math.min(Math.round(state.startCycle), observedUpper));
+      state.endCycle = Math.max(state.startCycle, Math.min(Math.round(state.endCycle), observedUpper));
+      state.rightBorder = Math.max(state.endCycle, Math.round(state.rightBorder));
+
+      state.xMin = 1;
+      state.xMax = computePlotMax();
+      state.rightBorder = Math.min(state.rightBorder, state.xMax);
+    }
+
+    function inputWindowShape() {
+      return {
+        type: 'rect',
+        xref: 'x',
+        yref: 'paper',
+        x0: state.startCycle - 0.5,
+        x1: state.endCycle + 0.5,
+        y0: 0,
+        y1: 1,
+        fillcolor: 'rgba(206, 145, 120, 0.16)',
+        line: {color: 'rgba(206, 145, 120, 0.7)', width: 1},
+        layer: 'below',
+      };
+    }
+
+    function outputHorizonShape() {
+      if (state.rightBorder <= state.endCycle) {
+        return null;
+      }
+      return {
+        type: 'rect',
+        xref: 'x',
+        yref: 'paper',
+        x0: state.endCycle + 0.5,
+        x1: state.rightBorder + 0.5,
+        y0: 0,
+        y1: 1,
+        fillcolor: 'rgba(0,0,0,0)',
+        line: {color: 'rgba(55, 148, 255, 0.65)', width: 1},
+        layer: 'below',
+      };
+    }
+
+    function boundaryLine(x, color, dash = 'solid') {
+      return {
+        type: 'line',
+        xref: 'x',
+        yref: 'paper',
+        x0: x,
+        x1: x,
+        y0: 0,
+        y1: 1,
+        line: {color, width: 2, dash},
+      };
+    }
+
+    function chartShapes() {
+      const shapes = [inputWindowShape()];
+      const horizon = outputHorizonShape();
+      shapes.push(horizon || {
+        type: 'rect', xref: 'x', yref: 'paper',
+        x0: 0, x1: 0, y0: 0, y1: 0,
+        fillcolor: 'rgba(0,0,0,0)', line: {width: 0},
+      });
+      shapes.push(boundaryLine(state.startCycle - 0.5, 'rgba(206,145,120,0.95)'));
+      shapes.push(boundaryLine(state.endCycle + 0.5, 'rgba(206,145,120,0.95)'));
+      shapes.push(boundaryLine(state.rightBorder + 0.5, 'rgba(55,148,255,0.95)', 'dot'));
+      return shapes;
+    }
+
+    const HOVER_LABEL = {
+      bgcolor: '#252526',
+      bordercolor: '#2f2f2f',
+      font: {color: '#d4d4d4', family: 'Segoe UI, sans-serif', size: 12},
+    };
+
+    function buildTrueTrace() {
+      return {
+        x: trueCaps.map((_, index) => index + 1),
+        y: trueCaps,
+        type: 'scatter',
+        mode: 'lines',
+        name: 'Observed',
+        line: {color: '#4fc1ff', width: 2.4},
+        hoverlabel: HOVER_LABEL,
+      };
+    }
+
+    function buildPredictionTrace(predictions) {
+      return {
+        x: predictions.map((point) => point.cycle),
+        y: predictions.map((point) => point.capacity_ah),
+        type: 'scatter',
+        mode: 'lines',
+        name: 'Forecast',
+        line: {color: '#ce9178', width: 2.4, dash: 'dash'},
+        hoverlabel: HOVER_LABEL,
+      };
+    }
+
+    function renderPlot(predictions = currentPredictions) {
+      clampWindows();
+      currentPredictions = predictions;
+
+      const traces = [buildTrueTrace()];
+      if (predictions.length > 0) {
+        traces.push(buildPredictionTrace(predictions));
+      }
+
+      // Dummy traces for legend entries representing shapes
+      traces.push({
+        x: [null], y: [null], type: 'scatter', mode: 'lines',
+        name: 'Input window',
+        line: {color: 'rgba(206, 145, 120, 0.95)', width: 2},
+        showlegend: true,
+      });
+      traces.push({
+        x: [null], y: [null], type: 'scatter', mode: 'lines',
+        name: 'Output horizon',
+        line: {color: 'rgba(55, 148, 255, 0.95)', width: 2, dash: 'dot'},
+        showlegend: true,
+      });
+
+      const layout = {
+        paper_bgcolor: 'rgba(0,0,0,0)',
+        plot_bgcolor: '#1e1e1e',
+        font: {color: '#cccccc', family: 'Segoe UI, sans-serif'},
+        margin: {t: 0, r: 10, b: 47, l: 60},
+        dragmode: 'pan',
+        hovermode: 'x unified',
+        hoverlabel: HOVER_LABEL,
+        shapes: chartShapes(),
+        modebar: {
+          bgcolor: 'rgba(0,0,0,0)',
+          color: '#8d8d8d',
+          activecolor: '#1177bb',
+        },
+        showlegend: true,
+        legend: {
+          orientation: 'h',
+          x: 0.5,
+          xanchor: 'center',
+          y: 1.0,
+          yanchor: 'bottom',
+          bgcolor: 'rgba(0,0,0,0)',
+          font: {size: 11},
+        },
+        xaxis: {
+          title: {text: 'Cycle', standoff: 4},
+          zeroline: false,
+          showspikes: true,
+          spikecolor: '#4fc1ff',
+          gridcolor: '#252525',
+          linecolor: '#2f2f2f',
+          autorange: true,
+        },
+        yaxis: {
+          title: {text: 'Discharge capacity (Ah)', standoff: 10},
+          zeroline: false,
+          gridcolor: '#252525',
+          linecolor: '#2f2f2f',
+        },
+      };
+
+      suppressRelayout = true;
+      Plotly.newPlot('plot', traces, layout, {
+        responsive: true,
+        displaylogo: false,
+        scrollZoom: true,
+        modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+      }).then(() => {
+        suppressRelayout = false;
+        setupDragHandlers();
+        setupModebarTooltips();
+      });
+    }
+
+    async function uploadJsonl() {
+      if (!fileInput.files || fileInput.files.length === 0) {
+        return;
+      }
+
+      setBusy(true, 'upload');
+      try {
+        const form = new FormData();
+        form.append('file', fileInput.files[0]);
+
+        const response = await fetch('/api/upload', {method: 'POST', body: form});
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.detail || 'Upload failed');
+        }
+
+        datasetId = data.dataset_id;
+        trueCaps = data.true_capacities;
+        currentPredictions = [];
+
+        state.startCycle = 1;
+        state.endCycle = Math.min(16, data.cycle_count);
+        state.rightBorder = Math.min(32, data.cycle_count);
+
+        // Reset prevState to force button to be enabled after upload
+        prevState.startCycle = -1;
+        prevState.endCycle = -1;
+        prevState.rightBorder = -1;
+
+        updateRunBtnState();
+        renderPlot([]);
+      } catch (error) {
+        console.error(error);
+      } finally {
+        setBusy(false, 'upload');
+      }
+    }
+
+    async function runForecast() {
+      if (!datasetId) {
+        return;
+      }
+
+      const payload = {
+        dataset_id: datasetId,
+        start_cycle: state.startCycle,
+        end_cycle: state.endCycle,
+        right_border: state.rightBorder,
+        context_size: DEFAULT_CONTEXT_SIZE,
+      };
+
+      setBusy(true, 'forecast');
+      try {
+        const response = await fetch('/api/predict', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.detail || 'Prediction failed');
+        }
+
+        renderPlot(data.predictions || []);
+      } catch (error) {
+        console.error(error);
+      } finally {
+        prevState.startCycle = state.startCycle;
+        prevState.endCycle = state.endCycle;
+        prevState.rightBorder = state.rightBorder;
+        updateRunBtnState();
+        setBusy(false, 'forecast');
+      }
+    }
+
+    // --- Custom horizontal drag for boundary lines ---
+    const DRAG_SNAP_PX = 10;
+    let dragTarget = null;
+    let dragHandlersAttached = false;
+
+    function nearestBoundary(clientX) {
+      const plotEl = document.getElementById('plot');
+      const fl = plotEl._fullLayout;
+      if (!fl) return null;
+      const rect = plotEl.getBoundingClientRect();
+      const px = clientX - rect.left;
+      const xaxis = fl.xaxis;
+      const ml = fl._size.l;
+
+      const startPx = xaxis.d2p(state.startCycle - 0.5) + ml;
+      const endPx = xaxis.d2p(state.endCycle + 0.5) + ml;
+      const rightPx = xaxis.d2p(state.rightBorder + 0.5) + ml;
+
+      const entries = [
+        {key: 'start', dist: Math.abs(px - startPx)},
+        {key: 'end', dist: Math.abs(px - endPx)},
+        {key: 'right', dist: Math.abs(px - rightPx)},
+      ];
+      entries.sort((a, b) => a.dist - b.dist);
+      return entries[0].dist <= DRAG_SNAP_PX ? entries[0].key : null;
+    }
+
+    function clientXToData(clientX) {
+      const plotEl = document.getElementById('plot');
+      const fl = plotEl._fullLayout;
+      const rect = plotEl.getBoundingClientRect();
+      return fl.xaxis.p2d(clientX - rect.left - fl._size.l);
+    }
+
+    function isInPlotArea(clientX, clientY) {
+      const plotEl = document.getElementById('plot');
+      const fl = plotEl._fullLayout;
+      if (!fl) return false;
+      const rect = plotEl.getBoundingClientRect();
+      const x = clientX - rect.left;
+      const y = clientY - rect.top;
+      const s = fl._size;
+      return x >= s.l && x <= s.l + s.w && y >= s.t && y <= s.t + s.h;
+    }
+
+    function setCursorOverride(active) {
+      if (active) {
+        document.documentElement.style.setProperty('cursor', 'col-resize', 'important');
+        // Override Plotly's drag overlay cursor
+        const plotEl = document.getElementById('plot');
+        plotEl.querySelectorAll('.nsewdrag, .drag').forEach(el => {
+          el.style.setProperty('cursor', 'col-resize', 'important');
+        });
+        plotEl.classList.add('drag-ew');
+        document.body.classList.add('drag-ew');
+      } else {
+        document.documentElement.style.removeProperty('cursor');
+        const plotEl = document.getElementById('plot');
+        plotEl.querySelectorAll('.nsewdrag, .drag').forEach(el => {
+          el.style.removeProperty('cursor');
+        });
+        plotEl.classList.remove('drag-ew');
+        document.body.classList.remove('drag-ew');
+      }
+    }
+
+    function setupDragHandlers() {
+      if (dragHandlersAttached) return;
+      dragHandlersAttached = true;
+      const plotEl = document.getElementById('plot');
+
+      // Capture-phase mousedown intercepts before Plotly's zoom/pan
+      plotEl.addEventListener('mousedown', (e) => {
+        if (!isInPlotArea(e.clientX, e.clientY)) return;
+        const target = nearestBoundary(e.clientX);
+        if (target) {
+          dragTarget = target;
+          setCursorOverride(true);
+          e.stopPropagation();
+          e.preventDefault();
+        }
+      }, true);
+
+      document.addEventListener('mousemove', (e) => {
+        if (dragTarget) {
+          const dataX = clientXToData(e.clientX);
+          if (dragTarget === 'start') state.startCycle = Math.round(dataX + 0.5);
+          else if (dragTarget === 'end') state.endCycle = Math.round(dataX - 0.5);
+          else if (dragTarget === 'right') state.rightBorder = Math.round(dataX - 0.5);
+          clampWindows();
+          updateRunBtnState();
+          suppressRelayout = true;
+          Plotly.relayout('plot', {shapes: chartShapes()}).then(() => {
+            suppressRelayout = false;
+          });
+          return;
+        }
+        if (isInPlotArea(e.clientX, e.clientY)) {
+          const target = nearestBoundary(e.clientX);
+          setCursorOverride(!!target);
+        } else {
+          setCursorOverride(false);
+        }
+      });
+
+      document.addEventListener('mouseup', () => {
+        if (dragTarget) {
+          dragTarget = null;
+          setCursorOverride(false);
+        }
+        if (panning) {
+          panning = false;
+          document.body.classList.remove('drag-grab');
+        }
+      });
+
+      // Right-click pan
+      let panning = false;
+      let panStartX = 0;
+      let panStartY = 0;
+      let panStartXRange = null;
+      let panStartYRange = null;
+
+      plotEl.addEventListener('contextmenu', (e) => {
+        if (isInPlotArea(e.clientX, e.clientY)) {
+          e.preventDefault();
+        }
+      });
+
+      plotEl.addEventListener('mousedown', (e) => {
+        if (e.button !== 2) return;
+        if (!isInPlotArea(e.clientX, e.clientY)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        panning = true;
+        panStartX = e.clientX;
+        panStartY = e.clientY;
+        const fl = plotEl._fullLayout;
+        panStartXRange = fl.xaxis.range.slice();
+        panStartYRange = fl.yaxis.range.slice();
+        document.body.classList.add('drag-grab');
+      }, true);
+
+      document.addEventListener('mousemove', (e) => {
+        if (!panning) return;
+        const fl = plotEl._fullLayout;
+        const xaxis = fl.xaxis;
+        const yaxis = fl.yaxis;
+        const dx = e.clientX - panStartX;
+        const dy = e.clientY - panStartY;
+        const dxData = xaxis.p2d(0) - xaxis.p2d(dx);
+        const dyData = yaxis.p2d(0) - yaxis.p2d(dy);
+        suppressRelayout = true;
+        Plotly.relayout('plot', {
+          'xaxis.range[0]': panStartXRange[0] + dxData,
+          'xaxis.range[1]': panStartXRange[1] + dxData,
+          'yaxis.range[0]': panStartYRange[0] + dyData,
+          'yaxis.range[1]': panStartYRange[1] + dyData,
+        }).then(() => { suppressRelayout = false; });
+      });
+    }
+
+    // Shift toggles zoom↔pan — update cursor to match
+    (function() {
+      function applyShiftClass(shiftHeld) {
+        const plotEl = document.getElementById('plot');
+        if (!plotEl || !plotEl._fullLayout) return;
+        plotEl.classList.remove('shift-zoom', 'shift-pan');
+        if (shiftHeld) {
+          const mode = plotEl._fullLayout.dragmode;
+          plotEl.classList.add(mode === 'pan' ? 'shift-zoom' : 'shift-pan');
+        }
+      }
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Shift') applyShiftClass(true);
+      });
+      document.addEventListener('keyup', (e) => {
+        if (e.key === 'Shift') applyShiftClass(false);
+      });
+      window.addEventListener('blur', () => {
+        document.getElementById('plot')?.classList.remove('shift-zoom', 'shift-pan');
+      });
+    })();
+
+    // Custom modebar tooltips (replaces Plotly's broken ::before)
+    let tooltipEl = null;
+
+    function setupModebarTooltips() {
+      const plotEl = document.getElementById('plot');
+      const buttons = plotEl.querySelectorAll('.modebar-btn');
+      buttons.forEach((btn) => {
+        const title = btn.getAttribute('data-title');
+        if (!title) return;
+        btn.removeAttribute('data-title');
+        btn.addEventListener('mouseenter', (e) => {
+          if (!tooltipEl) {
+            tooltipEl = document.createElement('div');
+            tooltipEl.className = 'modebar-tooltip';
+            document.body.appendChild(tooltipEl);
+          }
+          tooltipEl.textContent = title;
+          tooltipEl.style.display = 'block';
+          const rect = btn.getBoundingClientRect();
+          tooltipEl.style.left = (rect.left + rect.width / 2 - tooltipEl.offsetWidth / 2) + 'px';
+          tooltipEl.style.top = (rect.bottom + 4) + 'px';
+        });
+        btn.addEventListener('mouseleave', () => {
+          if (tooltipEl) tooltipEl.style.display = 'none';
+        });
+      });
+    }
+
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files && fileInput.files[0];
+      fileNameEl.textContent = file ? file.name : 'No file selected';
+      uploadJsonl();
+    });
+
+    runBtn.addEventListener('click', runForecast);
+
+    // Style Plotly notifications ("Double-click to zoom back", etc.)
+    new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        for (const node of m.addedNodes) {
+          if (!(node instanceof HTMLElement)) continue;
+          if (node.classList.contains('plotly-notifier')) {
+            observeNotifier(node);
+          }
+          if (node.classList.contains('notifier-note')) {
+            styleNote(node);
+          }
+        }
+      }
+    }).observe(document.body, {childList: true, subtree: true});
+
+    function observeNotifier(container) {
+      new MutationObserver((mutations) => {
+        for (const m of mutations) {
+          for (const node of m.addedNodes) {
+            if (node instanceof HTMLElement && node.classList.contains('notifier-note')) {
+              styleNote(node);
+            }
+          }
+        }
+      }).observe(container, {childList: true});
+      container.querySelectorAll('.notifier-note').forEach(styleNote);
+    }
+
+    function styleNote(el) {
+      Object.assign(el.style, {
+        backgroundColor: '#1e1e1e',
+        border: '1px solid #454545',
+        borderRadius: '3px',
+        color: '#cccccc',
+        fontFamily: '"Segoe UI", sans-serif',
+        fontSize: '12px',
+        padding: '6px 12px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.36)',
+      });
+    }
+
+    // Style any already-existing notifier
+    document.querySelectorAll('.plotly-notifier').forEach(observeNotifier);
+
+    updateRunBtnState();
+    renderPlot([]);
+  </script>
+</body>
+</html>
