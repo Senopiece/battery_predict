@@ -17,21 +17,22 @@ class BatteryPredictorModule(L.LightningModule):
             config.encoder,
             config.aggregator,
             config.head,
-            config.data.pred_seq_len,
         )
         self.save_hyperparameters(config.to_dict())
 
     def forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
+        num_offsets = batch["target_capacities_ah"].shape[1]
         return self.model(
             signals=batch["signals"],
             signal_mask=batch["signal_mask"],
             sequence_mask=batch["sequence_mask"],
+            num_offsets=num_offsets,
         )
 
     def _shared_step(self, batch: dict[str, torch.Tensor], stage: str) -> torch.Tensor:
-        predictions = self(batch)  # (B, pred_seq_len)
-        target = batch["target_capacities_ah"]  # (B, pred_seq_len)
-        valid = batch["target_capacity_valid"]  # (B, pred_seq_len) bool
+        predictions = self(batch)  # (B, max_target_len_in_batch)
+        target = batch["target_capacities_ah"]  # (B, max_target_len_in_batch)
+        valid = batch["target_capacity_valid"]  # (B, max_target_len_in_batch)
 
         errors = (predictions - target).abs()
         valid_errors = errors[valid]

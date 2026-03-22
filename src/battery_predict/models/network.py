@@ -20,10 +20,8 @@ class CapacityForecastModel(nn.Module):
         encoder_config: EncoderConfig,
         aggregator_config: AggregatorConfig,
         head_config: HeadConfig,
-        pred_seq_len: int,
     ):
         super().__init__()
-        self.pred_seq_len = pred_seq_len
         latent_dim = encoder_config.latent_dim
         agg_out_dim = aggregator_config.out_dim
         offset_dim = head_config.offset_embedding_dim
@@ -142,10 +140,11 @@ class CapacityForecastModel(nn.Module):
         signals: torch.Tensor,
         signal_mask: torch.Tensor,
         sequence_mask: torch.Tensor,
-    ) -> torch.Tensor:  # (B, pred_seq_len)
+        num_offsets: int,
+    ) -> torch.Tensor:  # (B, num_offsets)
         context_latent = self.encode_context(signals, signal_mask, sequence_mask)
         last_cycle_capacity_ah = self.compute_last_cycle_discharge_capacity(
             signals, signal_mask, sequence_mask
         )
-        offsets = torch.arange(self.pred_seq_len, device=signals.device)
+        offsets = torch.arange(num_offsets, device=signals.device)
         return self.predict_at_offsets(context_latent, offsets, last_cycle_capacity_ah)

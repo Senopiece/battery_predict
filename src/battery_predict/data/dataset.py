@@ -61,16 +61,11 @@ def _load_battery_record(path: Path, config: DataConfig) -> BatteryRecord:
     capacity_valid_array = np.asarray(capacity_valid, dtype=bool)
     if config.drop_cycles_without_discharge:
         keep = capacity_valid_array
-        if keep.sum() >= config.min_observed_cycles:
-            cycles = [
-                cycle for cycle, include in zip(cycles, keep, strict=True) if include
-            ]
-            capacities = [
-                value
-                for value, include in zip(capacities, keep, strict=True)
-                if include
-            ]
-            capacity_valid_array = np.ones(len(cycles), dtype=bool)
+        cycles = [cycle for cycle, include in zip(cycles, keep, strict=True) if include]
+        capacities = [
+            value for value, include in zip(capacities, keep, strict=True) if include
+        ]
+        capacity_valid_array = np.ones(len(cycles), dtype=bool)
 
     return BatteryRecord(
         path=path,
@@ -83,17 +78,13 @@ def _load_battery_record(path: Path, config: DataConfig) -> BatteryRecord:
 def _build_window_index(
     record: BatteryRecord, config: DataConfig
 ) -> list[tuple[Path, int]]:
-    # Need at least min_observed_cycles context AND 1 target beyond context.
-    if record.num_cycles < config.min_observed_cycles + 1:
+    # Require a full context window and at least min_pred_seq_len target cycles.
+    required_cycles = config.cycle_window + config.min_pred_seq_len
+    if record.num_cycles < required_cycles:
         return []
 
-    if record.num_cycles <= config.cycle_window:
-        # Short battery: context = all-but-last cycle, 1+ target cycle(s)
-        return [(record.path, 0)]
-
-    # Slide full-length context window; require at least 1 target after it.
-    max_start = record.num_cycles - config.cycle_window - 1
-    return [(record.path, start) for start in range(0, max_start + 1)]
+    max_start = record.num_cycles - required_cycles + 1
+    return [(record.path, start) for start in range(max_start)]
 
 
 class BatteryWindowDataset(Dataset[dict[str, Any]]):
@@ -101,7 +92,7 @@ class BatteryWindowDataset(Dataset[dict[str, Any]]):
         self.config = config
         self.files = tuple(sorted(files))
         self._cache: dict[Path, BatteryRecord] = {}
-        self._window_index: list[tuple[Path, int, int]] = []
+        self._window_index: list[tuple[Path, int]] = []
 
         for path in self.files:
             record = self._get_record(path)
@@ -128,27 +119,17 @@ class BatteryWindowDataset(Dataset[dict[str, Any]]):
         path, start = self._window_index[index]
         record = self._get_record(path)
 
-        # Context: up to cycle_window cycles; always leave at least 1 cycle for targets.
-        context_end = min(start + self.config.cycle_window, record.num_cycles - 1)
-        context_end = max(context_end, start + 1)  # at least 1 context cycle
+        context_end = start + self.config.cycle_window
 
         cycles = record.cycles[start:context_end]
         capacities = record.capacities_ah[start:context_end]
         capacity_valid = record.capacity_valid[start:context_end]
 
-        # Targets: next pred_seq_len capacities after context, zero-padded.
-        pred_seq_len = self.config.pred_seq_len
         target_start = context_end
-        target_end = min(target_start + pred_seq_len, record.num_cycles)
-        n_targets = target_end - target_start
-
-        target_caps = np.zeros(pred_seq_len, dtype=np.float32)
-        target_valid_mask = np.zeros(pred_seq_len, dtype=bool)
-        if n_targets > 0:
-            target_caps[:n_targets] = record.capacities_ah[target_start:target_end]
-            target_valid_mask[:n_targets] = record.capacity_valid[
-                target_start:target_end
-            ]
+        target_caps = record.capacities_ah[target_start:].astype(np.float32, copy=False)
+        target_valid_mask = record.capacity_valid[target_start:].astype(
+            bool, copy=False
+        )
 
         return {
             "battery_id": path.stem,
@@ -166,7 +147,7 @@ def collate_cycle_windows(batch: list[dict[str, Any]]) -> dict[str, Any]:
     batch_size = len(batch)
     max_cycles = max(len(item["signals"]) for item in batch)
     max_samples = max(signal.shape[0] for item in batch for signal in item["signals"])
-    pred_seq_len = batch[0]["target_capacities_ah"].shape[0]
+    max_target_len = max(item["target_capacities_ah"].shape[0] for item in batch)
 
     signals = torch.zeros((batch_size, max_cycles, max_samples, 2), dtype=torch.float32)
     signal_mask = torch.zeros((batch_size, max_cycles, max_samples), dtype=torch.bool)
@@ -174,8 +155,10 @@ def collate_cycle_windows(batch: list[dict[str, Any]]) -> dict[str, Any]:
     capacities_ah = torch.zeros((batch_size, max_cycles), dtype=torch.float32)
     capacity_valid = torch.zeros((batch_size, max_cycles), dtype=torch.bool)
     cycle_indices = torch.full((batch_size, max_cycles), -1, dtype=torch.long)
-    target_capacities_ah = torch.zeros((batch_size, pred_seq_len), dtype=torch.float32)
-    target_capacity_valid = torch.zeros((batch_size, pred_seq_len), dtype=torch.bool)
+    target_capacities_ah = torch.zeros(
+        (batch_size, max_target_len), dtype=torch.float32
+    )
+    target_capacity_valid = torch.zeros((batch_size, max_target_len), dtype=torch.bool)
     battery_ids: list[str] = []
 
     for batch_idx, item in enumerate(batch):
@@ -187,8 +170,11 @@ def collate_cycle_windows(batch: list[dict[str, Any]]) -> dict[str, Any]:
             item["capacity_valid"]
         )
         cycle_indices[batch_idx, :num_cycles] = torch.from_numpy(item["cycle_indices"])
-        target_capacities_ah[batch_idx] = torch.from_numpy(item["target_capacities_ah"])
-        target_capacity_valid[batch_idx] = torch.from_numpy(
+        target_len = item["target_capacities_ah"].shape[0]
+        target_capacities_ah[batch_idx, :target_len] = torch.from_numpy(
+            item["target_capacities_ah"]
+        )
+        target_capacity_valid[batch_idx, :target_len] = torch.from_numpy(
             item["target_capacity_valid"]
         )
 

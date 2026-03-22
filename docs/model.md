@@ -80,7 +80,7 @@ The `rotary_base` parameter (default `10000.0`) controls the RoPE frequency spre
 
 ### Why a separate aggregator output dim?
 
-The aggregator output feeds the forecast head which must predict capacity at arbitrary future offsets. A larger output dim gives the context vector more dimensions to work with, which benefits generalization — particularly when predicting far into the future beyond the training `pred_seq_len`.
+The aggregator output feeds the forecast head which must predict capacity at arbitrary future offsets. A larger output dim gives the context vector more dimensions to work with, which benefits generalization — particularly for samples whose target horizon is long because the context window starts early in the battery lifetime.
 
 ---
 
@@ -92,13 +92,17 @@ The aggregator output feeds the forecast head which must predict capacity at arb
 
 1. **Offset embedding** — `SinusoidalEmbedding(offset_embedding_dim)` maps integer cycle offsets `[0, 1, ..., n-1]` to dense vectors on the fly. The `offset_embedding_dim` is configured independently from the aggregator's `out_dim`.
 
-2. **Concatenation** — the context vector is broadcast across the `n` offsets and concatenated with offset embeddings: `(B, n, out_dim + offset_embedding_dim)`.
+2. **Residual prediction baseline** — before decoding, the model computes the discharge capacity of the **last context cycle** directly from the input current trace. This scalar is used as a baseline for every predicted future step.
 
-3. **MLP** — `Linear(out_dim + offset_embedding_dim → hidden_dim) → GELU → Linear(hidden_dim → 1)` produces one scalar capacity prediction per offset.
+3. **Concatenation** — the context vector is broadcast across the `n` offsets and concatenated with offset embeddings: `(B, n, out_dim + offset_embedding_dim)`.
+
+4. **MLP** — `Linear(out_dim + offset_embedding_dim → hidden_dim) → GELU → Linear(hidden_dim → 1)` produces one scalar **residual** per offset.
+
+5. **Absolute forecast reconstruction** — the residual sequence is added back to the last-context-cycle baseline, giving final capacity predictions in Ah.
 
 ### Arbitrary horizon
 
-The head can predict at any number of offsets at inference time, not limited to the training `pred_seq_len`. The sinusoidal offset embedding generalizes to unseen positions.
+The head can predict at any number of offsets at inference time. During training, the dataset already provides variable-length horizons because each sample predicts all remaining cycles after its context window. The sinusoidal offset embedding therefore operates natively on variable horizons rather than depending on any fixed training horizon hyperparameter.
 
 ---
 

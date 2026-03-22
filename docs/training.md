@@ -35,8 +35,8 @@ Training is implemented with PyTorch Lightning (`BatteryPredictorModule`). The l
 
 1. **Setup:** datamodule loads all files and builds train/validation window indices.
 2. **Epoch:** draw up to `utilize_epoch_windows` windows from train and `utilize_val_epoch_windows` from val.
-3. **Forward pass:** encode all cycles in the window, aggregate cycle latents into a context vector, predict future capacities via the forecast head.
-4. **Loss:** compute MAE between predicted and target capacities; backpropagate.
+3. **Forward pass:** encode the fixed-length context window, aggregate cycle latents into a context vector, then predict the full remaining future trajectory for each sample. Because different samples can have different remaining horizons, targets are padded to the batch maximum length and masked.
+4. **Loss:** compute masked MAE between predicted and target capacities; backpropagate.
 5. **Backward + clip + step:** gradient clipping at `gradient_clip_val`, AdamW optimizer, cosine LR schedule.
 
 ---
@@ -56,6 +56,7 @@ where $\mathcal{V}$ is the set of positions where `target_capacity_valid` is `Tr
 ### Masking
 
 - `target_capacity_valid[b, t]` is `True` if the target cycle at offset `t` exists in the battery and its discharge capacity passed the validity threshold.
+- Different samples in the same batch can have different target horizons; right-padded target positions are marked invalid and do not contribute to the loss.
 - If no valid targets exist in a batch (edge case), the loss falls back to the full unmasked error mean.
 
 ---

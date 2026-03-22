@@ -13,7 +13,7 @@ class DataConfig:
     split_seed: int = 7
     val_fraction: float = 0.2
     cycle_window: int = 12
-    min_observed_cycles: int = 2
+    min_pred_seq_len: int = 128
     train_batch_size: int = 8
     val_batch_size: int = 8
     num_workers: int = 0
@@ -24,7 +24,6 @@ class DataConfig:
     dt_seconds: float = 1.0
     min_discharge_capacity_ah: float = 1e-6
     drop_cycles_without_discharge: bool = True
-    pred_seq_len: int = 8
 
 
 @dataclass(slots=True)

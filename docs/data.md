@@ -82,14 +82,23 @@ Keep these files out of the training dataset when preparing the processed set us
 
 ## Window Sampling
 
-Each training window is a **contiguous window of `cycle_window` consecutive cycles** from one battery file.
+Each training sample is built from one battery file and one start offset.
 
 Window index construction:
-- If a battery has fewer than `min_observed_cycles` valid cycles: **excluded entirely**.
-- If a battery has between `min_observed_cycles` and `cycle_window` cycles: **one window** covering all cycles (shorter than `cycle_window` occurs only if #cycles < `cycle_window`).
-- If a battery has more than `cycle_window` cycles: **sliding windows** with step 1, giving `num_cycles - cycle_window + 1` windows per file.
+- A battery contributes samples only if it has **strictly more than `cycle_window` valid cycles** after optional discharge-only filtering.
+- Valid start offsets are all integers in `[0, num_cycles - cycle_window)`.
+- For each start offset `s`, the context window is `cycles[s : s + cycle_window]`.
+- The prediction target is **all remaining cycles after that window**: `cycles[s + cycle_window : ]`.
 
-This means longer-lived batteries contribute exponentially more windows. It is a deliberate bias toward batteries with rich degradation trajectories.
+So a battery with `N` usable cycles contributes exactly `N - cycle_window` samples, and the target length is variable:
+
+$$
+	ext{target_len}(s) = N - (s + \text{cycle_window})
+$$
+
+Earlier offsets therefore produce longer prediction horizons, and later offsets produce shorter ones.
+
+This means longer-lived batteries contribute linearly more windows. It is a deliberate bias toward batteries with rich degradation trajectories.
 
 **Nuance — epoch window usage:** Because longer batteries contribute many more windows, drawing all available windows per epoch would oversample batteries with many cycles. `utilize_epoch_windows` caps the number of windows drawn per training epoch via `torch.utils.data.RandomSampler`. If `utilize_epoch_windows > total_windows`, sampling is done with replacement. The same cap applies to validation via `utilize_val_epoch_windows`.
 
@@ -102,8 +111,9 @@ This means longer-lived batteries contribute exponentially more windows. It is a
 Within a batch, signal lengths can differ both across batteries and across cycles from the same battery. The collation function:
 
 1. Pads all signals in the batch to `max_samples`.
-2. Pads cycle sequences to `max_cycles` (the longest window in the batch). For the current processed dataset and default config, this is a pure no-op because all files exceed `cycle_window` and every sampled window has exactly `cycle_window` cycles. The padding path is kept for compatibility with future datasets/configs that may include shorter windows.
-3. Constructs `signal_mask`, `sequence_mask`, `target_capacities_ah`, and `target_capacity_valid` for model masking and loss computation.
+2. Pads cycle sequences to `max_cycles` (the longest window in the batch). With the current sampling rule this is typically exactly `cycle_window` for every sample, but the padding path remains for robustness.
+3. Pads target sequences to the **maximum target length in the batch**.
+4. Constructs `signal_mask`, `sequence_mask`, `target_capacities_ah`, and `target_capacity_valid` for model masking and loss computation.
 
 Let:
 - `B` = batch size
@@ -116,8 +126,8 @@ Tensor and mask meanings:
 - `sequence_mask`: shape `(B, C)`. `True` where a cycle slot in the window is real, `False` where it is cycle padding. This is the base mask for sequence-level operations.
 - `capacities_ah`: shape `(B, C)`. Discharge capacity in Ah for each context cycle.
 - `capacity_valid`: shape `(B, C)`. `True` where the context cycle has a valid discharge capacity.
-- `target_capacities_ah`: shape `(B, P)` where `P = pred_seq_len`. Future capacity targets for the cycles immediately following the context window, zero-padded if fewer than `P` target cycles exist.
-- `target_capacity_valid`: shape `(B, P)`. `True` where the corresponding target cycle exists and has a valid discharge capacity.
+- `target_capacities_ah`: shape `(B, P_max)` where `P_max` is the maximum remaining-horizon length in the batch. Each row stores the future capacities immediately following the context window and is zero-padded on the right if that sample has fewer targets than `P_max`.
+- `target_capacity_valid`: shape `(B, P_max)`. `True` where the corresponding target cycle exists and has a valid discharge capacity; `False` for right-padding and invalid capacities.
 - `cycle_indices`: shape `(B, C)`. Original cycle indices in the battery file.
 
 Reasoning:

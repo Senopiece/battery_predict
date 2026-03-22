@@ -5,14 +5,13 @@ data:
   split_seed: 7
   val_fraction: 0.2
   cycle_window: 4
-  pred_seq_len: 128
-  min_observed_cycles: 2
-  train_batch_size: 16
-  val_batch_size: 16
+  min_pred_seq_len: 128
+  train_batch_size: 8
+  val_batch_size: 8
   num_workers: 4
   pin_memory: true
   persistent_workers: true
-  utilize_epoch_windows: 512
+  utilize_epoch_windows: 256
   utilize_val_epoch_windows: 256
   dt_seconds: 1.0
   min_discharge_capacity_ah: 1.0e-6
@@ -49,7 +48,7 @@ scheduler:
   warmup_epochs: 5
   min_lr: 1.0e-5
 trainer:
-  max_epochs: 30
+  max_epochs: 100
   accelerator: auto
   devices: auto
   precision: 16-mixed
