@@ -18,9 +18,9 @@ data:
   min_discharge_capacity_ah: 1.0e-6
   drop_cycles_without_discharge: true
 encoder:
-  d_model: 16
-  latent_dim: 16 # ~ d_model * pooling_heads
-  conv_channels: [8, 16]
+  d_model: 32
+  latent_dim: 64
+  conv_channels: [16, 32]
   conv_kernels: [5, 3]
   conv_strides: [1, 2]
   conv_group_norm_groups: 4
@@ -30,16 +30,16 @@ encoder:
   dropout: 0.1
   pooling_heads: 4
 aggregator:
-  out_dim: 32
+  out_dim: 96
   layers: 1
   attention_heads: 4
-  ff_dim: 64
+  ff_dim: 128
   dropout: 0.1
-  pooling_heads: 2
+  pooling_heads: 4
   rotary_base: 10000.0
 head:
-  hidden_dim: 64
-  offset_embedding_dim: 8
+  hidden_dim: 256
+  offset_embedding_dim: 32
 optimizer:
   lr: 5.0e-4
   weight_decay: 1.0e-4
