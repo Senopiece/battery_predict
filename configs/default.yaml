@@ -4,8 +4,8 @@ data:
   dataset_dir: data/set
   split_seed: 7
   val_fraction: 0.2
-  cycle_window: 64
-  pred_seq_len: 64
+  cycle_window: 4
+  pred_seq_len: 128
   min_observed_cycles: 2
   train_batch_size: 16
   val_batch_size: 16

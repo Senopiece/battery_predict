@@ -54,7 +54,11 @@ class RotaryPositionalEncoding(nn.Module):
         self._build_cache(max_positions)
 
     def _build_cache(self, max_positions: int) -> None:
-        positions = torch.arange(max_positions, dtype=torch.float32)
+        positions = torch.arange(
+            max_positions,
+            dtype=self.inv_freq.dtype,
+            device=self.inv_freq.device,
+        )
         freqs = torch.outer(positions, self.inv_freq)
         emb = torch.cat((freqs, freqs), dim=-1)
         self.register_buffer("cos_cached", emb.cos(), persistent=False)
@@ -96,8 +100,17 @@ class SinusoidalPositionalEncoding(nn.Module):
         self._build_cache(64)
 
     def _build_cache(self, length: int) -> None:
-        position = torch.arange(length, dtype=torch.float32).unsqueeze(1)
-        pe = torch.zeros(length, self.d_model, dtype=torch.float32)
+        position = torch.arange(
+            length,
+            dtype=self.div_term.dtype,
+            device=self.div_term.device,
+        ).unsqueeze(1)
+        pe = torch.zeros(
+            length,
+            self.d_model,
+            dtype=self.div_term.dtype,
+            device=self.div_term.device,
+        )
         pe[:, 0::2] = torch.sin(position * self.div_term)
         pe[:, 1::2] = torch.cos(position * self.div_term)
         self.register_buffer("pe", pe.unsqueeze(0), persistent=False)
