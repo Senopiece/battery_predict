@@ -22,16 +22,20 @@ class BatteryPredictorModule(L.LightningModule):
         )
         self.save_hyperparameters(config.to_dict())
 
-        # Buffer for validation losses
+        # Buffer for batch-level losses in current epoch
         self._val_losses = []
+        # Buffer for epoch-level validation losses (history)
+        self._val_epoch_losses = []
 
     def on_validation_epoch_end(self):
-        # Compute smoothed val loss and log it
+        # Compute mean val loss for this epoch
         if len(self._val_losses) > 0:
-            val_losses = np.array(self._val_losses)
+            epoch_val_loss = float(np.mean(self._val_losses))
+            self._val_epoch_losses.append(epoch_val_loss)
+            # Apply Gaussian smoothing to epoch-level losses
+            val_losses = np.array(self._val_epoch_losses)
             kernel_size = 15
             sigma = 1.0
-            # Create Gaussian kernel
             x = np.arange(kernel_size) - kernel_size // 2
             kernel = np.exp(-0.5 * (x / sigma) ** 2)
             kernel /= kernel.sum()
@@ -86,7 +90,7 @@ class BatteryPredictorModule(L.LightningModule):
         self, batch: dict[str, torch.Tensor], batch_idx: int
     ) -> torch.Tensor:
         loss = self._shared_step(batch, "val")
-        # Store for smoothing
+        # Store batch loss for epoch mean
         self._val_losses.append(loss.detach().cpu().item())
         return loss
 
