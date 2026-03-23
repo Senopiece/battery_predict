@@ -34,8 +34,8 @@ class BatteryPredictorModule(L.LightningModule):
             self._val_epoch_losses.append(epoch_val_loss)
             # Apply Gaussian smoothing to epoch-level losses
             val_losses = np.array(self._val_epoch_losses)
-            kernel_size = 5
-            sigma = 1.0
+            kernel_size = 15
+            sigma = 3.0
             x = np.arange(kernel_size) - kernel_size // 2
             kernel = np.exp(-0.5 * (x / sigma) ** 2)
             kernel /= kernel.sum()
