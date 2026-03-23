@@ -47,12 +47,9 @@ def train(
     # Parse and apply overrides
     if overrides:
         for override in overrides:
-            if not override.startswith("--config."):
+            if "=" not in override:
                 continue
-            keyval = override[len("--config.") :]
-            if "=" not in keyval:
-                continue
-            key, value = keyval.split("=", 1)
+            key, value = override.split("=", 1)
             # Try to infer type from current value
             try:
                 current = loaded_config
