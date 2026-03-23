@@ -1,4 +1,6 @@
 from __future__ import annotations
+import torch.nn.functional as F
+import numpy as np
 
 import lightning as L
 import torch
@@ -19,6 +21,30 @@ class BatteryPredictorModule(L.LightningModule):
             config.head,
         )
         self.save_hyperparameters(config.to_dict())
+
+        # Buffer for validation losses
+        self._val_losses = []
+
+    def on_validation_epoch_end(self):
+        # Compute smoothed val loss and log it
+        if len(self._val_losses) > 0:
+            val_losses = np.array(self._val_losses)
+            kernel_size = 15
+            sigma = 1.0
+            # Create Gaussian kernel
+            x = np.arange(kernel_size) - kernel_size // 2
+            kernel = np.exp(-0.5 * (x / sigma) ** 2)
+            kernel /= kernel.sum()
+            smoothed = np.convolve(val_losses, kernel, mode="same")
+            smoothed_val = float(smoothed[-1])
+            self.log(
+                "smoothed_val_loss",
+                smoothed_val,
+                prog_bar=True,
+                on_epoch=True,
+                on_step=False,
+            )
+        self._val_losses.clear()
 
     def forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
         num_offsets = batch["target_capacities_ah"].shape[1]
@@ -59,7 +85,10 @@ class BatteryPredictorModule(L.LightningModule):
     def validation_step(
         self, batch: dict[str, torch.Tensor], batch_idx: int
     ) -> torch.Tensor:
-        return self._shared_step(batch, "val")
+        loss = self._shared_step(batch, "val")
+        # Store for smoothing
+        self._val_losses.append(loss.detach().cpu().item())
+        return loss
 
     def test_step(self, batch: dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
         return self._shared_step(batch, "test")

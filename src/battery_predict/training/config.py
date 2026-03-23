@@ -103,9 +103,9 @@ class TrainerConfig:
 
 @dataclass(slots=True)
 class CallbackConfig:
-    checkpoint_monitor: str = "val/loss"
+    checkpoint_monitor: str = "smoothed_val_loss"
     checkpoint_mode: str = "min"
-    checkpoint_filename: str = "best-{epoch:02d}-{val_loss:.4f}"
+    checkpoint_filename: str = "best-{epoch:02d}-{smoothed_val_loss:.4f}"
     save_top_k: int = 1
 
 
