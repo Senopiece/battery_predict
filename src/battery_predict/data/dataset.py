@@ -16,25 +16,34 @@ from battery_predict.utils.capacity import (
 )
 from battery_predict.utils.splits import BatterySplit, split_battery_files
 
+# Progress bar for dataset construction
+try:
+    from tqdm import tqdm
+except ImportError:
+
+    def tqdm(x, **kwargs):
+        return x
+
 
 @dataclass(slots=True)
 class BatteryRecord:
     path: Path
-    cycles: tuple[np.ndarray, ...]
+    valid_cycle_indices: np.ndarray
     capacities_ah: np.ndarray
     capacity_valid: np.ndarray
 
     @property
     def num_cycles(self) -> int:
-        return len(self.cycles)
+        return int(self.valid_cycle_indices.shape[0])
 
 
 def _load_battery_record(path: Path, config: DataConfig) -> BatteryRecord:
-    array = np.load(path, allow_pickle=False)
+    # Memory-map large .npy files to avoid loading the full tensor in RAM.
+    array = np.load(path, allow_pickle=False, mmap_mode="r")
     if array.ndim != 3 or array.shape[-1] != 2:
         raise ValueError(f"Battery tensor {path} must have shape (cycle, sample, 2).")
 
-    cycles: list[np.ndarray] = []
+    valid_cycle_indices: list[int] = []
     capacities: list[float] = []
     capacity_valid: list[bool] = []
 
@@ -51,40 +60,38 @@ def _load_battery_record(path: Path, config: DataConfig) -> BatteryRecord:
             dt_seconds=config.dt_seconds,
             min_capacity_ah=config.min_discharge_capacity_ah,
         )
-        cycles.append(trimmed)
+        valid_cycle_indices.append(cycle_idx)
         capacities.append(capacity_ah)
         capacity_valid.append(is_valid_capacity)
 
-    if not cycles:
+    if not valid_cycle_indices:
         raise ValueError(f"Battery tensor {path} has no valid cycles.")
 
+    valid_cycle_indices_array = np.asarray(valid_cycle_indices, dtype=np.int64)
     capacity_valid_array = np.asarray(capacity_valid, dtype=bool)
     if config.drop_cycles_without_discharge:
         keep = capacity_valid_array
-        cycles = [cycle for cycle, include in zip(cycles, keep, strict=True) if include]
+        valid_cycle_indices_array = valid_cycle_indices_array[keep]
         capacities = [
             value for value, include in zip(capacities, keep, strict=True) if include
         ]
-        capacity_valid_array = np.ones(len(cycles), dtype=bool)
+        capacity_valid_array = np.ones(valid_cycle_indices_array.shape[0], dtype=bool)
 
     return BatteryRecord(
         path=path,
-        cycles=tuple(cycles),
+        valid_cycle_indices=valid_cycle_indices_array,
         capacities_ah=np.asarray(capacities, dtype=np.float32),
         capacity_valid=capacity_valid_array.astype(bool, copy=False),
     )
 
 
-def _build_window_index(
-    record: BatteryRecord, config: DataConfig
-) -> list[tuple[Path, int]]:
+def _count_windows(record: BatteryRecord, config: DataConfig) -> int:
     # Require a full context window and at least min_pred_seq_len target cycles.
     required_cycles = config.cycle_window + config.min_pred_seq_len
     if record.num_cycles < required_cycles:
-        return []
+        return 0
 
-    max_start = record.num_cycles - required_cycles + 1
-    return [(record.path, start) for start in range(max_start)]
+    return record.num_cycles - required_cycles + 1
 
 
 class BatteryWindowDataset(Dataset[dict[str, Any]]):
@@ -92,13 +99,29 @@ class BatteryWindowDataset(Dataset[dict[str, Any]]):
         self.config = config
         self.files = tuple(sorted(files))
         self._cache: dict[Path, BatteryRecord] = {}
-        self._window_index: list[tuple[Path, int]] = []
+        self._records: list[BatteryRecord] = []
+        self._window_offsets = np.asarray([0], dtype=np.int64)
+        self._total_windows = 0
+        self._active_array_path: Path | None = None
+        self._active_array: np.ndarray | None = None
 
-        for path in self.files:
+        counts: list[int] = []
+        for path in tqdm(self.files, desc="Indexing battery files", unit="file"):
             record = self._get_record(path)
-            self._window_index.extend(_build_window_index(record, config))
+            self._records.append(record)
+            counts.append(_count_windows(record, config))
 
-        if not self._window_index:
+        if counts:
+            counts_array = np.asarray(counts, dtype=np.int64)
+            self._window_offsets = np.concatenate(
+                (
+                    np.asarray([0], dtype=np.int64),
+                    np.cumsum(counts_array, dtype=np.int64),
+                )
+            )
+            self._total_windows = int(self._window_offsets[-1])
+
+        if self._total_windows <= 0:
             raise ValueError(
                 "No valid cycle windows were constructed from the selected files."
             )
@@ -108,20 +131,51 @@ class BatteryWindowDataset(Dataset[dict[str, Any]]):
             self._cache[path] = _load_battery_record(path, self.config)
         return self._cache[path]
 
+    def _get_array(self, path: Path) -> np.ndarray:
+        if self._active_array_path != path or self._active_array is None:
+            self._active_array = np.load(path, allow_pickle=False, mmap_mode="r")
+            self._active_array_path = path
+        assert self._active_array is not None
+        return self._active_array
+
+    def _resolve_index(self, index: int) -> tuple[BatteryRecord, int]:
+        if index < 0:
+            index += self._total_windows
+        if index < 0 or index >= self._total_windows:
+            raise IndexError("BatteryWindowDataset index out of range")
+
+        file_idx = int(np.searchsorted(self._window_offsets, index, side="right") - 1)
+        start = int(index - self._window_offsets[file_idx])
+        return self._records[file_idx], start
+
     @property
     def windows(self) -> tuple[tuple[Path, int], ...]:
-        return tuple(self._window_index)
+        flat_windows: list[tuple[Path, int]] = []
+        for file_idx, record in enumerate(self._records):
+            start = int(self._window_offsets[file_idx])
+            end = int(self._window_offsets[file_idx + 1])
+            flat_windows.extend((record.path, offset) for offset in range(end - start))
+        return tuple(flat_windows)
 
     def __len__(self) -> int:
-        return len(self._window_index)
+        return self._total_windows
 
     def __getitem__(self, index: int) -> dict[str, Any]:
-        path, start = self._window_index[index]
-        record = self._get_record(path)
+        record, start = self._resolve_index(index)
+        path = record.path
+        array = self._get_array(path)
 
         context_end = start + self.config.cycle_window
 
-        cycles = record.cycles[start:context_end]
+        source_cycle_indices = record.valid_cycle_indices[start:context_end]
+        cycles = []
+        for source_cycle_idx in source_cycle_indices:
+            cycle = array[int(source_cycle_idx)]
+            valid_mask = compute_valid_cycle_mask(cycle)
+            valid_len = int(valid_mask.sum())
+            cycles.append(cycle[:valid_len].astype(np.float32, copy=False))
+        cycles_tuple = tuple(cycles)
+
         capacities = record.capacities_ah[start:context_end]
         capacity_valid = record.capacity_valid[start:context_end]
 
@@ -133,8 +187,8 @@ class BatteryWindowDataset(Dataset[dict[str, Any]]):
 
         return {
             "battery_id": path.stem,
-            "signals": cycles,
-            "signal_masks": tuple(np.ones(len(c), dtype=bool) for c in cycles),
+            "signals": cycles_tuple,
+            "signal_masks": tuple(np.ones(len(c), dtype=bool) for c in cycles_tuple),
             "capacities_ah": capacities.astype(np.float32, copy=False),
             "capacity_valid": capacity_valid.astype(bool, copy=False),
             "target_capacities_ah": target_caps,
@@ -180,7 +234,10 @@ def collate_cycle_windows(batch: list[dict[str, Any]]) -> dict[str, Any]:
 
         for cycle_idx, signal in enumerate(item["signals"]):
             valid_len = signal.shape[0]
-            signals[batch_idx, cycle_idx, :valid_len, :] = torch.from_numpy(signal)
+            # Signals can come from read-only mmap views; force writable copy first.
+            signals[batch_idx, cycle_idx, :valid_len, :] = torch.from_numpy(
+                np.array(signal, copy=True)
+            )
             signal_mask[batch_idx, cycle_idx, :valid_len] = True
 
     return {
@@ -205,8 +262,16 @@ class BatteryDataModule(L.LightningDataModule):
         self.train_dataset: BatteryWindowDataset | None = None
         self.val_dataset: BatteryWindowDataset | None = None
 
+    _setup_call_count = 0
+
     def setup(self, stage: str | None = None) -> None:
+        type(self)._setup_call_count += 1
+        if type(self)._setup_call_count > 1:
+            print(
+                "[WARNING] BatteryDataModule.setup() called more than once. This may cause double dataset construction."
+            )
         files = sorted(self.dataset_dir.glob("*.npy"))
+        print(f"[BatteryDataModule] Scanning {len(files)} .npy files for split...")
         self.split = split_battery_files(
             files,
             seed=self.config.split_seed,
@@ -214,7 +279,13 @@ class BatteryDataModule(L.LightningDataModule):
         )
 
         if stage in (None, "fit"):
+            print(
+                f"[BatteryDataModule] Building train dataset ({len(self.split.train)} files)..."
+            )
             self.train_dataset = BatteryWindowDataset(self.split.train, self.config)
+            print(
+                f"[BatteryDataModule] Building val dataset ({len(self.split.val)} files)..."
+            )
             self.val_dataset = BatteryWindowDataset(self.split.val, self.config)
 
     def train_dataloader(self) -> DataLoader[dict[str, Any]]:
@@ -252,12 +323,12 @@ class BatteryDataModule(L.LightningDataModule):
                 "DataModule.setup('fit') must be called before val_dataloader()."
             )
         sampler = None
-        if getattr(self.config, "utilize_val_epoch_windows", None) is not None:
+        val_samples = getattr(self.config, "utilize_val_epoch_windows", None)
+        if val_samples is not None:
             sampler = RandomSampler(
                 self.val_dataset,
-                replacement=self.config.utilize_val_epoch_windows
-                > len(self.val_dataset),
-                num_samples=self.config.utilize_val_epoch_windows,
+                replacement=val_samples > len(self.val_dataset),
+                num_samples=val_samples,
             )
         return DataLoader(
             self.val_dataset,

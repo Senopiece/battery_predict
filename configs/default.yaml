@@ -11,7 +11,7 @@ data:
   num_workers: 4
   pin_memory: true
   persistent_workers: true
-  utilize_epoch_windows: 256
+  utilize_epoch_windows: 512
   utilize_val_epoch_windows: 256
   dt_seconds: 1.0
   min_discharge_capacity_ah: 1.0e-6

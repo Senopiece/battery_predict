@@ -35,10 +35,8 @@ def make_run_dir(config: ExperimentConfig) -> Path:
 
 
 def create_datamodule(config: ExperimentConfig) -> BatteryDataModule:
-    """Instantiate and setup data module."""
-    datamodule = BatteryDataModule(config.data)
-    datamodule.setup("fit")
-    return datamodule
+    """Instantiate data module (Lightning will call setup)."""
+    return BatteryDataModule(config.data)
 
 
 def create_module(
@@ -118,26 +116,8 @@ def fit_experiment(
     run_dir = make_run_dir(config)
     config.save_yaml(run_dir / "config.yaml")
 
-    datamodule = create_datamodule(config)
+    datamodule = BatteryDataModule(config.data)
     clearml_task = maybe_init_clearml_task(config)
-
-    # Print sample counts and percentages for train and val
-    train_total = len(datamodule.train_dataset) if datamodule.train_dataset else 0
-    val_total = len(datamodule.val_dataset) if datamodule.val_dataset else 0
-    train_samples = (
-        config.data.utilize_epoch_windows
-        if config.data.utilize_epoch_windows is not None
-        else train_total
-    )
-    val_samples = getattr(config.data, "utilize_val_epoch_windows", None)
-    if val_samples is None:
-        val_samples = val_total
-    print(
-        f"[INFO] Train samples: {train_samples} / {train_total} ({100.0 * train_samples / max(1, train_total):.1f}%)"
-    )
-    print(
-        f"[INFO] Val samples: {val_samples} / {val_total} ({100.0 * val_samples / max(1, val_total):.1f}%)"
-    )
 
     module = create_module(config, datamodule)
     trainer = create_trainer(config, run_dir, enable_live_plot=enable_live_plot)

@@ -1,56 +1,37 @@
 from __future__ import annotations
-
 from pathlib import Path
-
 import lightning as L
 from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
-
 from battery_predict.training.config import CallbackConfig, ExperimentConfig
 
 
-class LiveLossPlotCallback(L.Callback):
-    def __init__(self):
-        super().__init__()
-        self.train_loss: list[float] = []
-        self.val_loss: list[float] = []
-
-    def _render(self) -> None:
-        try:
-            import matplotlib.pyplot as plt
-            from IPython.display import clear_output, display
-        except Exception:
+class PrintSampleUsageCallback(L.Callback):
+    def on_fit_start(self, trainer, pl_module):
+        datamodule = trainer.datamodule
+        if datamodule is None:
+            print("[INFO] No datamodule found for sample usage printout.")
             return
-
-        clear_output(wait=True)
-        fig, ax = plt.subplots(figsize=(8, 4))
-        if self.train_loss:
-            ax.plot(self.train_loss, label="train")
-        if self.val_loss:
-            ax.plot(self.val_loss, label="val")
-        ax.set_title("Loss History")
-        ax.set_xlabel("epoch")
-        ax.set_ylabel("loss")
-        ax.grid(True, alpha=0.3)
-        ax.legend()
-        display(fig)
-        plt.close(fig)
-
-    def on_train_epoch_end(
-        self, trainer: L.Trainer, pl_module: L.LightningModule
-    ) -> None:
-        metric = trainer.callback_metrics.get("train/loss_epoch")
-        if metric is not None:
-            self.train_loss.append(float(metric.detach().cpu()))
-
-    def on_validation_epoch_end(
-        self,
-        trainer: L.Trainer,
-        pl_module: L.LightningModule,
-    ) -> None:
-        metric = trainer.callback_metrics.get("val/loss")
-        if metric is not None:
-            self.val_loss.append(float(metric.detach().cpu()))
-            self._render()
+        train_total = len(datamodule.train_dataset) if datamodule.train_dataset else 0
+        val_total = len(datamodule.val_dataset) if datamodule.val_dataset else 0
+        config = getattr(datamodule, "config", None)
+        if config is not None:
+            train_samples = (
+                config.utilize_epoch_windows
+                if getattr(config, "utilize_epoch_windows", None) is not None
+                else train_total
+            )
+            val_samples = getattr(config, "utilize_val_epoch_windows", None)
+            if val_samples is None:
+                val_samples = val_total
+        else:
+            train_samples = train_total
+            val_samples = val_total
+        print(
+            f"[INFO] Train samples: {train_samples} / {train_total} ({100.0 * train_samples / max(1, train_total):.1f}%)"
+        )
+        print(
+            f"[INFO] Val samples: {val_samples} / {val_total} ({100.0 * val_samples / max(1, val_total):.1f}%)"
+        )
 
 
 def build_callbacks(
@@ -73,4 +54,5 @@ def build_callbacks(
     ]
     if enable_live_plot:
         callbacks.append(LiveLossPlotCallback())
+    callbacks.append(PrintSampleUsageCallback())
     return callbacks
