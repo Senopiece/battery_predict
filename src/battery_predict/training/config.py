@@ -24,6 +24,7 @@ class DataConfig:
     dt_seconds: float = 1.0
     min_discharge_capacity_ah: float = 1e-6
     drop_cycles_without_discharge: bool = True
+    max_pred_seq_len: int = 256
 
 
 @dataclass(slots=True)

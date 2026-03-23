@@ -180,10 +180,14 @@ class BatteryWindowDataset(Dataset[dict[str, Any]]):
         capacity_valid = record.capacity_valid[start:context_end]
 
         target_start = context_end
+        max_pred = getattr(self.config, "max_pred_seq_len", None)
         target_caps = record.capacities_ah[target_start:].astype(np.float32, copy=False)
         target_valid_mask = record.capacity_valid[target_start:].astype(
             bool, copy=False
         )
+        if max_pred is not None:
+            target_caps = target_caps[:max_pred]
+            target_valid_mask = target_valid_mask[:max_pred]
 
         return {
             "battery_id": path.stem,
