@@ -163,6 +163,7 @@ def run_prediction(
     end_cycle: int,
     right_border: int,
     context_size: int,
+    batch_size: int = 32,
 ) -> list[dict[str, float]]:
     if MODEL is None:
         raise RuntimeError("Model is not loaded.")
@@ -196,12 +197,18 @@ def run_prediction(
         last_cycle_capacity_ah = MODEL.model.compute_last_cycle_discharge_capacity(
             signals, signal_mask, sequence_mask
         )
-        offsets = torch.arange(n_to_predict, device=DEVICE)
-        pred_caps = MODEL.model.predict_at_offsets(
-            context_latent,
-            offsets,
-            last_cycle_capacity_ah,
-        ).squeeze(0)
+        pred_caps = []
+        for i in range(0, n_to_predict, batch_size):
+            batch_offsets = torch.arange(
+                i, min(i + batch_size, n_to_predict), device=DEVICE
+            )
+            batch_pred = MODEL.model.predict_at_offsets(
+                context_latent,
+                batch_offsets,
+                last_cycle_capacity_ah,
+            ).squeeze(0)
+            pred_caps.append(batch_pred)
+        pred_caps = torch.cat(pred_caps, dim=0)
 
     return [
         {"cycle": float(end_cycle + i + 1), "capacity_ah": float(pred_caps[i])}
@@ -242,6 +249,9 @@ def predict(req: PredictRequest) -> dict[str, Any]:
     if dataset is None:
         raise HTTPException(status_code=404, detail="Dataset not found. Upload again.")
 
+    # Use batch_size from CLI/global if set, else default 32
+    batch_size = getattr(app.state, "predict_batch_size", 32)
+
     try:
         preds = run_prediction(
             dataset=dataset,
@@ -249,6 +259,7 @@ def predict(req: PredictRequest) -> dict[str, Any]:
             end_cycle=req.end_cycle,
             right_border=req.right_border,
             context_size=req.context_size,
+            batch_size=batch_size,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -261,6 +272,9 @@ def main(
     config: Path | None = typer.Option(None, help="Optional config YAML path."),
     host: str = typer.Option("127.0.0.1", help="Host interface to bind."),
     port: int = typer.Option(8000, help="Port to serve the web UI."),
+    predict_batch_size: int = typer.Option(
+        32, help="Batch size for prediction offsets."
+    ),
 ) -> None:
     global MODEL
 
@@ -274,6 +288,9 @@ def main(
 
     print(f"[INFO] Model loaded from {checkpoint}")
     print(f"[INFO] Serving UI at http://{host}:{port}")
+
+    # Store batch size in app state for use in predict
+    app.state.predict_batch_size = predict_batch_size
 
     uvicorn.run(app, host=host, port=port, log_level="info")
 
