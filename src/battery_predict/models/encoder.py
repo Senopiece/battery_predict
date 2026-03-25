@@ -3,6 +3,7 @@ from __future__ import annotations
 import torch
 from torch import nn
 
+from battery_predict.models.agf import AGFAttention
 from battery_predict.models.embeddings import SinusoidalPositionalEncoding
 from battery_predict.models.layers import (
     FeedForward,
@@ -79,14 +80,28 @@ class ConvFeatureExtractor(nn.Module):
 
 
 class SignalTransformerBlock(nn.Module):
-    def __init__(self, d_model: int, num_heads: int, ff_dim: int, dropout: float):
+    def __init__(
+        self,
+        d_model: int,
+        num_heads: int,
+        ff_dim: int,
+        dropout: float,
+        agf_order: int,
+        agf_top_k: int | None,
+        agf_alphas_act: str,
+    ):
         super().__init__()
         self.norm1 = nn.LayerNorm(d_model)
-        self.attn = nn.MultiheadAttention(
-            d_model,
-            num_heads,
-            dropout=dropout,
-            batch_first=True,
+        self.attn = AGFAttention(
+            dim=d_model,
+            num_heads=num_heads,
+            dim_head=d_model // num_heads,
+            order=agf_order,
+            top_k=agf_top_k,
+            basis="monomial",
+            alphas_act=agf_alphas_act,
+            max_relative_position=None,
+            normalization="softmax",
         )
         self.dropout1 = nn.Dropout(dropout)
         self.norm2 = nn.LayerNorm(d_model)
@@ -94,14 +109,10 @@ class SignalTransformerBlock(nn.Module):
         self.dropout2 = nn.Dropout(dropout)
 
     def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        key_padding_mask = ~mask
         attn_input = self.norm1(x)
-        attn_out, _ = self.attn(
+        attn_out = self.attn(
             attn_input,
-            attn_input,
-            attn_input,
-            key_padding_mask=key_padding_mask,
-            need_weights=False,
+            mask=mask,
         )
         x = x + self.dropout1(attn_out)
         x = x * mask.unsqueeze(-1).to(x.dtype)
@@ -125,6 +136,9 @@ class CycleEncoder(nn.Module):
                     num_heads=config.attention_heads,
                     ff_dim=config.ff_dim,
                     dropout=config.dropout,
+                    agf_order=config.agf_order,
+                    agf_top_k=config.agf_top_k,
+                    agf_alphas_act=config.agf_alphas_act,
                 )
                 for _ in range(config.transformer_layers)
             ]

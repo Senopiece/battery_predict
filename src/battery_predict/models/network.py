@@ -44,6 +44,9 @@ class CapacityForecastModel(nn.Module):
                     num_heads=aggregator_config.attention_heads,
                     ff_dim=aggregator_config.ff_dim,
                     dropout=aggregator_config.dropout,
+                    agf_order=aggregator_config.agf_order,
+                    agf_top_k=aggregator_config.agf_top_k,
+                    agf_alphas_act=aggregator_config.agf_alphas_act,
                 )
                 for _ in range(aggregator_config.layers)
             ]
