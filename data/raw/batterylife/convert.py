@@ -26,9 +26,9 @@ from typing import Any, Callable
 
 import numpy as np
 
-RAW_DIR = Path(__file__).resolve().parent / "set" / "liion"
+RAW_DIR = Path(__file__).resolve().parent / "set" / "naion"
 OUT_DIR = Path(__file__).resolve().parents[2] / "set"
-RAW_HELDOUT_DIR = Path(__file__).resolve().parent / "heldout" / "liion"
+RAW_HELDOUT_DIR = Path(__file__).resolve().parent / "heldout" / "naion"
 OUT_HELDOUT_DIR = OUT_DIR / "heldout"
 
 BASE62_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
