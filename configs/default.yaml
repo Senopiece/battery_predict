@@ -73,6 +73,6 @@ clearml:
   enabled: true
   project_name: battery-predict
   task_name: battery_forecast
-  tags: [liion, integral-decoder, agf]
+  tags: [naion, integral-decoder, agf]
   output_uri: null
   offline_mode: false
