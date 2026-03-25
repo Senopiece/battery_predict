@@ -29,7 +29,7 @@ encoder:
   ff_dim: 32
   dropout: 0.1
   pooling_heads: 4
-  agf_order: 1
+  agf_order: 5
   agf_top_k: null
   agf_alphas_act: sigmoid
 aggregator:
@@ -40,7 +40,7 @@ aggregator:
   dropout: 0.1
   pooling_heads: 4
   rotary_base: 10000.0
-  agf_order: 1
+  agf_order: 5
   agf_top_k: null
   agf_alphas_act: sigmoid
 head:
