@@ -200,7 +200,7 @@ def run_prediction(
         pred_caps = []
         for i in range(0, n_to_predict, batch_size):
             batch_offsets = torch.arange(
-                i, min(i + batch_size, n_to_predict), device=DEVICE
+                i, min(i + batch_size, n_to_predict), device=DEVICE, dtype=signals.dtype
             )
             batch_pred = MODEL.model.predict_at_offsets(
                 context_latent,

@@ -4,10 +4,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from battery_predict.models.embeddings import (
-    RotaryPositionalEncoding,
-    SinusoidalEmbedding,
-)
+from battery_predict.models.embeddings import RotaryPositionalEncoding
 from battery_predict.models.encoder import CycleEncoder, SignalTransformerBlock
 from battery_predict.models.layers import MaskedAttentionPooling, ConstrainedLinear
 from battery_predict.training.config import AggregatorConfig, EncoderConfig, HeadConfig
@@ -58,11 +55,9 @@ class CapacityForecastModel(nn.Module):
         )
 
         # Forecast head: (context_latent || offset_embed) → scalar capacity
-        # self.offset_embed = SinusoidalEmbedding(offset_dim)
         self.offset_embed = nn.Sequential(
-            nn.Linear(1, 4 * offset_dim),
+            nn.Linear(1, offset_dim),
             nn.Tanh(),
-            nn.Linear(4 * offset_dim, offset_dim),
         )
         self.head = nn.Sequential(
             nn.Linear(agg_out_dim + offset_dim, head_config.hidden_dim),
@@ -124,7 +119,7 @@ class CapacityForecastModel(nn.Module):
     ) -> torch.Tensor:  # (B, n)
         B = context_latent.shape[0]
         n = offsets.shape[0]
-        offset_embs = self.offset_embed(offsets)  # (n, offset_dim)
+        offset_embs = self.offset_embed(offsets.unsqueeze(-1))  # (n, offset_dim)
         ctx = context_latent.unsqueeze(1).expand(-1, n, -1)  # (B, n, agg_out_dim)
         offset_embs = offset_embs.unsqueeze(0).expand(B, -1, -1)  # (B, n, offset_dim)
         mlp_input = torch.cat(
@@ -155,5 +150,5 @@ class CapacityForecastModel(nn.Module):
         last_cycle_capacity_ah = self.compute_last_cycle_discharge_capacity(
             signals, signal_mask, sequence_mask
         )
-        offsets = torch.arange(num_offsets, device=signals.device)
+        offsets = torch.arange(num_offsets, device=signals.device, dtype=signals.dtype)
         return self.predict_at_offsets(context_latent, offsets, last_cycle_capacity_ah)
