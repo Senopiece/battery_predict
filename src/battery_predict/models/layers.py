@@ -79,6 +79,7 @@ class ConstrainedLinear(nn.Module):
 
     def __init__(self, in_features, out_features, bias=True, activation=F.softplus):
         super().__init__()
+        self.activation = activation
         self.weight_unconstrained = nn.Parameter(torch.empty(out_features, in_features))
         if bias:
             self.bias_unconstrained = nn.Parameter(torch.empty(out_features))
