@@ -61,7 +61,7 @@ class CapacityForecastModel(nn.Module):
         self.offset_embed = SinusoidalEmbedding(offset_dim)
         self.head = nn.Sequential(
             nn.Linear(agg_out_dim + offset_dim, head_config.hidden_dim),
-            nn.GELU(),
+            nn.ReLU(),
             ConstrainedLinear(head_config.hidden_dim, 1, activation=F.gelu),
         )
 
