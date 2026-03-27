@@ -74,10 +74,10 @@ class MaskedAttentionPooling(nn.Module):
         return pooled.flatten(start_dim=1)
 
 
-class PositiveLinear(nn.Module):
-    """Linear layer with positive weights and bias via softplus."""
+class ConstrainedLinear(nn.Module):
+    """Linear layer with constrained weights and bias via activation function."""
 
-    def __init__(self, in_features, out_features, bias=True):
+    def __init__(self, in_features, out_features, bias=True, activation=F.softplus):
         super().__init__()
         self.weight_unconstrained = nn.Parameter(torch.empty(out_features, in_features))
         if bias:
@@ -94,9 +94,9 @@ class PositiveLinear(nn.Module):
             nn.init.uniform_(self.bias_unconstrained, -bound, bound)
 
     def forward(self, input):
-        weight = F.softplus(self.weight_unconstrained)
+        weight = self.activation(self.weight_unconstrained)
         bias = (
-            F.softplus(self.bias_unconstrained)
+            self.activation(self.bias_unconstrained)
             if self.bias_unconstrained is not None
             else None
         )

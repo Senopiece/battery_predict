@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import torch
 from torch import nn
+from torch.nn import functional as F
 
 from battery_predict.models.embeddings import (
     RotaryPositionalEncoding,
     SinusoidalEmbedding,
 )
 from battery_predict.models.encoder import CycleEncoder, SignalTransformerBlock
-from battery_predict.models.layers import MaskedAttentionPooling, PositiveLinear
+from battery_predict.models.layers import MaskedAttentionPooling, ConstrainedLinear
 from battery_predict.training.config import AggregatorConfig, EncoderConfig, HeadConfig
 
 
@@ -60,8 +61,8 @@ class CapacityForecastModel(nn.Module):
         self.offset_embed = SinusoidalEmbedding(offset_dim)
         self.head = nn.Sequential(
             nn.Linear(agg_out_dim + offset_dim, head_config.hidden_dim),
-            nn.GELU(),
-            PositiveLinear(head_config.hidden_dim, 1),
+            nn.ReLU(),
+            ConstrainedLinear(head_config.hidden_dim, 1, activation=F.gelu),
         )
 
     def compute_last_cycle_discharge_capacity(
