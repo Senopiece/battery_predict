@@ -67,6 +67,6 @@ clearml:
   enabled: true
   project_name: battery-predict
   task_name: battery_forecast
-  tags: [naion, deriv-predictor, relu+c_gelu]
+  tags: [naion, deriv-predictor]
   output_uri: null
   offline_mode: false

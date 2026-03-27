@@ -61,8 +61,8 @@ class CapacityForecastModel(nn.Module):
         self.offset_embed = SinusoidalEmbedding(offset_dim)
         self.head = nn.Sequential(
             nn.Linear(agg_out_dim + offset_dim, head_config.hidden_dim),
-            nn.ReLU(),
-            ConstrainedLinear(head_config.hidden_dim, 1, activation=F.gelu),
+            nn.GELU(),
+            ConstrainedLinear(head_config.hidden_dim, 1, activation=F.softplus),
         )
 
     def compute_last_cycle_discharge_capacity(
@@ -134,7 +134,10 @@ class CapacityForecastModel(nn.Module):
         last_cycle_capacity_ah: torch.Tensor,  # (B,)
     ) -> torch.Tensor:  # (B, n)
         residual = self.predict_residual_at_offsets(context_latent, offsets)
-        return last_cycle_capacity_ah.unsqueeze(1) - torch.cumsum(residual, dim=1)
+        cumsum = torch.cumsum(residual, dim=1)
+        harmonic = 1.0 / torch.arange(1, residual.size(1) + 1, device=residual.device)
+        cumsum = cumsum * harmonic.unsqueeze(0)
+        return last_cycle_capacity_ah.unsqueeze(1) - cumsum
 
     def forward(
         self,
