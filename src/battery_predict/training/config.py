@@ -40,9 +40,6 @@ class EncoderConfig:
     ff_dim: int = 128
     dropout: float = 0.1
     pooling_heads: int = 2
-    agf_order: int = 3
-    agf_top_k: int | None = None
-    agf_alphas_act: str = "sigmoid"
 
 
 @dataclass(slots=True)
@@ -54,9 +51,6 @@ class AggregatorConfig:
     dropout: float = 0.1
     pooling_heads: int = 2
     rotary_base: float = 10000.0
-    agf_order: int = 3
-    agf_top_k: int | None = None
-    agf_alphas_act: str = "sigmoid"
 
 
 @dataclass(slots=True)

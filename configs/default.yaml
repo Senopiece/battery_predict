@@ -29,9 +29,6 @@ encoder:
   ff_dim: 32
   dropout: 0.1
   pooling_heads: 4
-  agf_order: 5
-  agf_top_k: 64
-  agf_alphas_act: sigmoid
 aggregator:
   out_dim: 96
   layers: 1
@@ -40,9 +37,6 @@ aggregator:
   dropout: 0.1
   pooling_heads: 4
   rotary_base: 10000.0
-  agf_order: 5
-  agf_top_k: null
-  agf_alphas_act: sigmoid
 head:
   hidden_dim: 256
   offset_embedding_dim: 32
@@ -73,6 +67,6 @@ clearml:
   enabled: true
   project_name: battery-predict
   task_name: battery_forecast
-  tags: [naion, integral-decoder, agf]
+  tags: [liion, integral-decoder]
   output_uri: null
   offline_mode: false
