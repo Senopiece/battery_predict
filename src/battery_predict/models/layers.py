@@ -1,6 +1,7 @@
 """Reusable neural network layers and utilities."""
 
 from __future__ import annotations
+import math
 
 import torch
 from torch import nn
@@ -71,3 +72,32 @@ class MaskedAttentionPooling(nn.Module):
         weights = torch.softmax(scores, dim=1)
         pooled = torch.einsum("bth,btd->bhd", weights, hidden)
         return pooled.flatten(start_dim=1)
+
+
+class PositiveLinear(nn.Module):
+    """Linear layer with positive weights and bias via softplus."""
+
+    def __init__(self, in_features, out_features, bias=True):
+        super().__init__()
+        self.weight_unconstrained = nn.Parameter(torch.empty(out_features, in_features))
+        if bias:
+            self.bias_unconstrained = nn.Parameter(torch.empty(out_features))
+        else:
+            self.register_parameter("bias_unconstrained", None)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        nn.init.kaiming_uniform_(self.weight_unconstrained, a=math.sqrt(5))
+        if self.bias_unconstrained is not None:
+            fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weight_unconstrained)
+            bound = 1 / math.sqrt(fan_in)
+            nn.init.uniform_(self.bias_unconstrained, -bound, bound)
+
+    def forward(self, input):
+        weight = F.softplus(self.weight_unconstrained)
+        bias = (
+            F.softplus(self.bias_unconstrained)
+            if self.bias_unconstrained is not None
+            else None
+        )
+        return F.linear(input, weight, bias)

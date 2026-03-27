@@ -8,7 +8,7 @@ from battery_predict.models.embeddings import (
     SinusoidalEmbedding,
 )
 from battery_predict.models.encoder import CycleEncoder, SignalTransformerBlock
-from battery_predict.models.layers import MaskedAttentionPooling
+from battery_predict.models.layers import MaskedAttentionPooling, PositiveLinear
 from battery_predict.training.config import AggregatorConfig, EncoderConfig, HeadConfig
 
 
@@ -61,7 +61,7 @@ class CapacityForecastModel(nn.Module):
         self.head = nn.Sequential(
             nn.Linear(agg_out_dim + offset_dim, head_config.hidden_dim),
             nn.GELU(),
-            nn.Linear(head_config.hidden_dim, 1),
+            PositiveLinear(head_config.hidden_dim, 1),
         )
 
     def compute_last_cycle_discharge_capacity(
@@ -133,7 +133,7 @@ class CapacityForecastModel(nn.Module):
         last_cycle_capacity_ah: torch.Tensor,  # (B,)
     ) -> torch.Tensor:  # (B, n)
         residual = self.predict_residual_at_offsets(context_latent, offsets)
-        return last_cycle_capacity_ah.unsqueeze(1) + torch.cumsum(residual, dim=1)
+        return last_cycle_capacity_ah.unsqueeze(1) - torch.cumsum(residual, dim=1)
 
     def forward(
         self,
