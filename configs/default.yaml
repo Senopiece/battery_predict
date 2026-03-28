@@ -6,7 +6,7 @@ data:
   val_fraction: 0.2
   cycle_window: 4
   min_pred_seq_len: 64
-  max_pred_seq_len: 512
+  max_pred_seq_len: 2048
   train_batch_size: 8
   val_batch_size: 8
   num_workers: 4
@@ -20,13 +20,13 @@ data:
 encoder:
   d_model: 32
   latent_dim: 64
-  conv_channels: [16, 32]
-  conv_kernels: [5, 3]
-  conv_strides: [1, 2]
+  conv_channels: [8, 16, 32]
+  conv_kernels: [5, 3, 3]
+  conv_strides: [1, 2, 2]
   conv_group_norm_groups: 4
-  transformer_layers: 1
+  transformer_layers: 8
   attention_heads: 4
-  ff_dim: 32
+  ff_dim: 128
   dropout: 0.1
   pooling_heads: 4
 aggregator:
@@ -67,6 +67,6 @@ clearml:
   enabled: true
   project_name: battery-predict
   task_name: battery_forecast
-  tags: [naion, deriv-predictor]
+  tags: []
   output_uri: null
   offline_mode: false

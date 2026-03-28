@@ -58,6 +58,7 @@ class CapacityForecastModel(nn.Module):
         self.offset_embed = nn.Sequential(
             nn.Linear(1, offset_dim),
             nn.Tanh(),
+            nn.Linear(offset_dim, offset_dim),
         )
         self.head = nn.Sequential(
             nn.Linear(agg_out_dim + offset_dim, head_config.hidden_dim),
