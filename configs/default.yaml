@@ -70,3 +70,10 @@ clearml:
   tags: []
   output_uri: null
   offline_mode: false
+
+# TODO: separate min/max_pred_seq_len into train/val
+# TODO: predicted variance compensation loss
+# TODO: more signal features to build
+# TODO: layers of the prediction
+# TODO: aggregator as separate module
+# TODO: fix that there is val_loss and val somewhy, remove smoothed val_loss and move to saving the last checkpoint instead of best, or save both best (on just val) and last
