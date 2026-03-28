@@ -134,10 +134,10 @@ class CapacityForecastModel(nn.Module):
         last_cycle_capacity_ah: torch.Tensor,  # (B,)
     ) -> torch.Tensor:  # (B, n)
         residual = self.predict_residual_at_offsets(context_latent, offsets)
-        # cumsum = torch.cumsum(residual, dim=1)
-        # harmonic = 1.0 / torch.arange(1, residual.size(1) + 1, device=residual.device)
-        # cumsum = cumsum * harmonic.unsqueeze(0)
-        return last_cycle_capacity_ah.unsqueeze(1) + residual  # - cumsum
+        cumsum = torch.cumsum(residual, dim=1)
+        harmonic = 1.0 / torch.arange(1, residual.size(1) + 1, device=residual.device)
+        cumsum = cumsum * harmonic.unsqueeze(0)
+        return last_cycle_capacity_ah.unsqueeze(1) - cumsum
 
     def forward(
         self,
