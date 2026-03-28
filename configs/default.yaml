@@ -77,3 +77,6 @@ clearml:
 # TODO: layers of the prediction
 # TODO: aggregator as separate module
 # TODO: fix that there is val_loss and val somewhy, remove smoothed val_loss and move to saving the last checkpoint instead of best, or save both best (on just val) and last
+# TODO: make dataset files more compressed, more ready for more general format for utilizing more of the liion dataset
+# TODO: sync notebooks, add separate working with liion dataset
+# TODO: sync docs
