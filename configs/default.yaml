@@ -78,6 +78,7 @@ clearml:
 # TODO: aggregator as separate module
 # TODO: fix that there is val_loss and val somewhy, remove smoothed val_loss and move to saving the last checkpoint instead of best, or save both best (on just val) and last
 # TODO: play more with encoder arch: normalizations order, conv features transform before transformer, more conv layers, more transformer layers, more channels, more attention heads, more ff dim, different pooling methods
+# TODO: play more with the predictor head mb use meta model
 # TODO: make dataset files more compressed, more ready for more general format for utilizing more of the liion dataset
 # TODO: sync notebooks, add separate working with liion dataset
 # TODO: sync docs
