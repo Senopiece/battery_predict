@@ -6,7 +6,7 @@ data:
   val_fraction: 0.2
   cycle_window: 4
   min_pred_seq_len: 64
-  max_pred_seq_len: 2048
+  max_pred_seq_len: 4096
   train_batch_size: 8
   val_batch_size: 8
   num_workers: 4
