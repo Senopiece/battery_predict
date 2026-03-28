@@ -18,11 +18,11 @@ data:
   min_discharge_capacity_ah: 1.0e-6
   drop_cycles_without_discharge: true
 encoder:
-  d_model: 32
-  latent_dim: 64
-  conv_channels: [8, 16, 32]
-  conv_kernels: [5, 3, 3]
-  conv_strides: [1, 2, 2]
+  d_model: 64
+  latent_dim: 96
+  conv_channels: [32, 64]
+  conv_kernels: [5, 3]
+  conv_strides: [1, 2]
   conv_group_norm_groups: 4
   transformer_layers: 8
   attention_heads: 4
@@ -30,10 +30,10 @@ encoder:
   dropout: 0.1
   pooling_heads: 4
 aggregator:
-  out_dim: 96
+  out_dim: 128
   layers: 1
   attention_heads: 4
-  ff_dim: 128
+  ff_dim: 256
   dropout: 0.1
   pooling_heads: 4
   rotary_base: 10000.0
@@ -77,6 +77,7 @@ clearml:
 # TODO: layers of the prediction
 # TODO: aggregator as separate module
 # TODO: fix that there is val_loss and val somewhy, remove smoothed val_loss and move to saving the last checkpoint instead of best, or save both best (on just val) and last
+# TODO: play more with encoder arch: normalizations order, conv features transform before transformer, more conv layers, more transformer layers, more channels, more attention heads, more ff dim, different pooling methods
 # TODO: make dataset files more compressed, more ready for more general format for utilizing more of the liion dataset
 # TODO: sync notebooks, add separate working with liion dataset
 # TODO: sync docs
