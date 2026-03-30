@@ -39,7 +39,7 @@ aggregator:
   rotary_base: 10000.0
 head:
   hidden_dim: 256
-  offset_embedding_dim: 32
+  offset_embedding_dim: 64
 optimizer:
   lr: 1.0e-3
   weight_decay: 1.0e-4
