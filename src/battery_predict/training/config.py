@@ -30,6 +30,7 @@ class DataConfig:
 @dataclass(slots=True)
 class EncoderConfig:
     d_model: int = 64
+    positional_embed_dim: int = 64
     latent_dim: int = 64
     conv_channels: tuple[int, ...] = (32, 64)
     conv_kernels: tuple[int, ...] = (5, 3)

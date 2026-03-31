@@ -122,4 +122,4 @@ class SinusoidalPositionalEncoding(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         self._ensure_cache(x.size(1))
-        return x + self.pe[:, : x.size(1)]
+        return self.pe[:, : x.size(1)].to(device=x.device, dtype=x.dtype)

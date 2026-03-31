@@ -18,9 +18,10 @@ data:
   min_discharge_capacity_ah: 1.0e-6
   drop_cycles_without_discharge: true
 encoder:
-  d_model: 64
+  d_model: 32
+  positional_embed_dim: 32
   latent_dim: 96
-  conv_channels: [32, 64]
+  conv_channels: [16, 32]
   conv_kernels: [5, 3]
   conv_strides: [1, 2]
   conv_group_norm_groups: 4

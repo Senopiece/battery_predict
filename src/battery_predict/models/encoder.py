@@ -116,12 +116,17 @@ class CycleEncoder(nn.Module):
         self.config = config
         self.conv = ConvFeatureExtractor(config)
         self.position = SinusoidalPositionalEncoding(
-            config.d_model,
+            config.positional_embed_dim,
         )
+        self.transformer_dim = config.d_model + config.positional_embed_dim
+        if self.transformer_dim % config.attention_heads != 0:
+            raise ValueError(
+                "d_model + positional_embed_dim must be divisible by attention_heads."
+            )
         self.blocks = nn.ModuleList(
             [
                 SignalTransformerBlock(
-                    d_model=config.d_model,
+                    d_model=self.transformer_dim,
                     num_heads=config.attention_heads,
                     ff_dim=config.ff_dim,
                     dropout=config.dropout,
@@ -129,15 +134,16 @@ class CycleEncoder(nn.Module):
                 for _ in range(config.transformer_layers)
             ]
         )
-        self.pool = MaskedAttentionPooling(config.d_model, config.pooling_heads)
+        self.pool = MaskedAttentionPooling(self.transformer_dim, config.pooling_heads)
         self.project = nn.Sequential(
-            nn.Linear(config.d_model * config.pooling_heads, config.latent_dim),
+            nn.Linear(self.transformer_dim * config.pooling_heads, config.latent_dim),
             nn.LayerNorm(config.latent_dim),
         )
 
     def forward(self, signal: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         hidden, hidden_mask = self.conv(signal, mask)
-        hidden = self.position(hidden)
+        pos = self.position(hidden)
+        hidden = torch.cat((hidden, pos.expand(hidden.size(0), -1, -1)), dim=-1)
         hidden = hidden * hidden_mask.unsqueeze(-1).to(hidden.dtype)
         for block in self.blocks:
             hidden = block(hidden, hidden_mask)
